@@ -46,8 +46,10 @@ Peak memory is ~1-2 GB (sphere case, 2.9 M cells).
   about res/8 and 10 cells across the substrate to get within 0.5 %. HFSS hides this with adaptive meshing; our
   tool will need an equivalent convergence loop.
 - **Sphere RCS has an error from the stepped (staircased) surface.** A 12 mm uniform grid gives 0.83 dB RMS; a
-  6 mm region around the sphere gives 0.40 dB. The remaining error sits next to the deep nulls. A 4 mm run was
-  stopped because the machine was low on memory, so convergence below 6 mm hasn't been verified.
+  6 mm region around the sphere gives 0.40 dB. The remaining error sits next to the deep nulls. A 4 mm region
+  (6.1 M cells, 6.5 min) gives 0.34 dB RMS but leaves ka=3 unchanged at −0.77 dB. So the ka=3 error doesn't
+  come from how finely the sphere is meshed. Unverified suspects: grid dispersion in the 12 mm background cells,
+  or the plane-wave/NF2FF box setup. 6 mm stays the default.
 - **Watch for stale far-field results.** `nf2ff.CalcNF2FF` reuses an existing result file by default
   (`read_cached=True`). That silently returned stale results after a mesh change; the sphere case passes
   `read_cached=False`.

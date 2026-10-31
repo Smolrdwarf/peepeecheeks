@@ -6,44 +6,44 @@
     {
       "name": "Z0 @ 2 GHz",
       "unit": "ohm",
-      "openems": 51.8297568145836,
+      "openems": 51.829500494447515,
       "reference": 52.144888937484865,
       "reference_source": "analytic",
       "tol_pct": 2.0,
       "tol_abs": null,
       "upper_bound": false,
-      "error_abs": -0.315132122901268,
-      "error_pct": -0.6043394267826931,
+      "error_abs": -0.3153884430373495,
+      "error_pct": -0.6048309804925663,
       "passed": true
     },
     {
       "name": "eps_eff @ 2 GHz",
       "unit": "-",
-      "openems": 2.673882616869518,
+      "openems": 2.6738960397447658,
       "reference": 2.661572300025273,
       "reference_source": "analytic",
       "tol_pct": 2.0,
       "tol_abs": null,
       "upper_bound": false,
-      "error_abs": 0.012310316844244884,
-      "error_pct": 0.4625204749887121,
+      "error_abs": 0.012323739719492632,
+      "error_pct": 0.46302479625954973,
       "passed": true
     },
     {
       "name": "min |S21| 0.5-6 GHz (lossless)",
       "unit": "dB",
-      "openems": -0.02747644352268468,
+      "openems": -0.02747704911985587,
       "reference": 0.0,
       "reference_source": "analytic",
       "tol_pct": null,
       "tol_abs": 0.2,
       "upper_bound": false,
-      "error_abs": -0.02747644352268468,
+      "error_abs": -0.02747704911985587,
       "error_pct": NaN,
       "passed": true
     }
   ],
-  "runtime_s": 87.48906373977661,
+  "runtime_s": 90.63466167449951,
   "notes": [
     "Reference is Hammerstad-Jensen (zero strip thickness, quasi-static).",
     "no HFSS reference supplied (references/hfss/microstrip_line.csv); compared to analytic only"

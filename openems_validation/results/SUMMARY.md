@@ -6,7 +6,7 @@ Generated 2026-10-31 by `run_all.py` — openEMS 0.37.0, Python 3.14.3, Windows 
 |---|---|---|
 | `wr90_waveguide` | PASS | 9 s |
 | `cavity_eigenmode` | PASS | 45 s |
-| `microstrip_line` | PASS | 87 s |
+| `microstrip_line` | PASS | 91 s |
 | `pec_sphere_rcs` | **FAIL** | 176 s |
 | `microstrip_adaptive` | PASS | 186 s |
 
@@ -55,9 +55,9 @@ HFSS equivalent: Driven Terminal, 2 wave ports, sweep 0.5-6 GHz (port Zo, gamma)
 
 | Metric | openEMS | Reference | Source | Error | Tolerance | |
 |---|---|---|---|---|---|---|
-| Z0 @ 2 GHz | 51.83 ohm | 52.145 | analytic | -0.604 % | ±2 % | ok |
+| Z0 @ 2 GHz | 51.83 ohm | 52.145 | analytic | -0.605 % | ±2 % | ok |
 | eps_eff @ 2 GHz | 2.6739 - | 2.6616 | analytic | +0.463 % | ±2 % | ok |
-| min |S21| 0.5-6 GHz (lossless) | -0.027476 dB | 0 | analytic | -0.0275 dB | ±0.2 dB | ok |
+| min |S21| 0.5-6 GHz (lossless) | -0.027477 dB | 0 | analytic | -0.0275 dB | ±0.2 dB | ok |
 
 - Reference is Hammerstad-Jensen (zero strip thickness, quasi-static).
 - no HFSS reference supplied (references/hfss/microstrip_line.csv); compared to analytic only

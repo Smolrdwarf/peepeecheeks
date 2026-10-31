@@ -9,7 +9,8 @@ Note the sphere is staircased on the Cartesian FDTD grid (HFSS uses curved tetra
 Mesh study (2026-10-31): uniform lambda/25 (12 mm) gives 0.83 dB RMS error; a 6 mm
 region around the sphere gives 0.40 dB. Remaining error is largest next to the deep
 nulls (ka ~ 1.75, 2.95), where a small shift in ka produces a large dB difference.
-A 4 mm run was attempted but stopped (host low on memory), so convergence below 6 mm is unverified.
+4 mm around the sphere: RMS 0.34 dB, ka=3 still -0.77 dB, so that error is not sphere
+staircasing; suspects are background-grid dispersion or the TF/SF / NF2FF box setup (unverified).
 """
 import sys, time
 from pathlib import Path
