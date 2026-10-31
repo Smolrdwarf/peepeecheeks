@@ -67,6 +67,7 @@ class ModelerView(QtInteractor):
         self._actor_names: dict[int, str] = {}
         self._tessellated: dict[str, bool] = {}
         self._colors: dict[str, tuple] = {}
+        self._sheet_actors: list = []
         self._selected: str | None = None
         self._show_grid = True
         self._press_pos = None
@@ -81,12 +82,30 @@ class ModelerView(QtInteractor):
         pos = self.iren.get_event_position()
         if self._press_pos is None or abs(pos[0] - self._press_pos[0]) + abs(pos[1] - self._press_pos[1]) > 3:
             return
-        import vtk
-        picker = vtk.vtkPropPicker()
-        picker.Pick(pos[0], pos[1], 0, self.renderer)
-        actor = picker.GetActor()
+        actor = self._pick_actor(*pos)
         name = self._actor_names.get(id(actor), "") if actor is not None else ""
         self.picked.emit(name)
+
+    def _pick_actor(self, x, y):
+        import vtk
+        # Ray-cast rather than vtkPropPicker: its hardware selection finds nothing under macOS Cocoa.
+        picker = vtk.vtkCellPicker()
+        picker.SetTolerance(0.0005)
+        picker.Pick(x, y, 0, self.renderer)
+        actor = picker.GetActor()
+        if actor is None or not self._sheet_actors:
+            return actor
+        # A sheet lying on a solid's face (a patch on its substrate) ties with that face: the sheet wins.
+        sheets = vtk.vtkCellPicker()
+        sheets.SetTolerance(0.0005)
+        sheets.PickFromListOn()
+        for sheet in self._sheet_actors:
+            sheets.AddPickList(sheet)
+        if sheets.Pick(x, y, 0, self.renderer):
+            gap = np.linalg.norm(np.subtract(sheets.GetPickPosition(), picker.GetPickPosition()))
+            if gap <= 1e-5 * self.camera.distance:
+                return sheets.GetActor()
+        return actor
 
     # ------------------------------------------------------------------ rendering
     def rebuild(self, project: Project, errors: list | None = None, keep_camera=True):
@@ -99,6 +118,7 @@ class ModelerView(QtInteractor):
         self._tessellated.clear()
         self._colors.clear()
         self._actor_names.clear()
+        self._sheet_actors.clear()
         try:
             variables = project.resolved_variables()
         except Exception as exc:  # noqa: BLE001
@@ -124,6 +144,10 @@ class ModelerView(QtInteractor):
             self._actors[obj.name] = actor
             self._tessellated[obj.name] = obj.kind == "cad"
             self._colors[obj.name] = mat.color
+            # Imported (cad) objects carry no sheet flag; a flat bounding box identifies an imported sheet.
+            ext = np.subtract(mesh.bounds[1::2], mesh.bounds[0::2])
+            if obj.kind == "rectangle" or (obj.kind == "cad" and ext.min() <= 1e-9 * max(ext.max(), 1e-30)):
+                self._sheet_actors.append(actor)
             feature_edges = mesh.extract_feature_edges(45)
             if feature_edges.n_points:  # spheres have no sharp edges
                 self._actors[f"edge::{obj.name}"] = self.add_mesh(

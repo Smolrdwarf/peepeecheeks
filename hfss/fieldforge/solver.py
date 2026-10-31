@@ -20,8 +20,9 @@ EPS0 = 8.8541878128e-12
 
 
 def openems_install_path() -> str:
-    return os.environ.get("OPENEMS_INSTALL_PATH",
-                          os.path.join(os.path.expanduser("~"), "tools", "openEMS"))
+    # Windows uses the release zip; macOS/Linux build from source into the upstream default prefix.
+    default = ("tools", "openEMS") if os.name == "nt" else ("opt", "openEMS")
+    return os.environ.get("OPENEMS_INSTALL_PATH", os.path.join(os.path.expanduser("~"), *default))
 
 
 def _import_openems():
@@ -30,6 +31,8 @@ def _import_openems():
     if os.name == "nt" and os.path.isdir(path):
         os.add_dll_directory(path)
         os.environ["PATH"] = path + os.pathsep + os.environ["PATH"]
+    elif os.path.isdir(path):
+        os.environ["PATH"] = os.path.join(path, "bin") + os.pathsep + os.environ["PATH"]
     from CSXCAD import ContinuousStructure
     from openEMS import openEMS
     return ContinuousStructure, openEMS

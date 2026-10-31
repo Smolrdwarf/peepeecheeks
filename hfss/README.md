@@ -67,6 +67,15 @@ Things to keep in mind when comparing:
    ```
 3. Run `hfss\FieldForge.bat`, or `.venv\Scripts\python hfss\run.py [project.ffproj]`.
 
+## Setup (macOS, Apple Silicon)
+
+openEMS has no macOS release, so it is compiled from source. Tested on an M1 with macOS 26.
+
+1. Install [Homebrew](https://brew.sh) and a **python.org Python 3.13**.
+2. Run `hfss/setup_macos.sh`. It installs `cmake`, `boost` and `hdf5`, creates `.venv`, builds openEMS into
+   `~/opt/openEMS` (or `OPENEMS_INSTALL_PATH`) and installs its Python bindings into `.venv`.
+3. Double-click `hfss/FieldForge.command`, or run `.venv/bin/python hfss/run.py [project.ffproj]`.
+
 The solver can also be run headless: `python -m fieldforge.solver project.ffproj outdir` (run from `hfss/`).
 
 ## Layout
@@ -92,6 +101,15 @@ The solver can also be run headless: `python -m fieldforge.solver project.ffproj
 |---|---|---|
 | Half-wave dipole, 70 mm | D = 2.18 dBi, efficiency ≈ 100 % | 2.15 dBi theory |
 | Patch 32×40 mm on RO4003C, 1.524 mm | S11 = −22 dB at 2.30 GHz, D = 6.6 dBi, efficiency 93 % | typical for a patch (6–7 dBi) |
+
+macOS (M1, openEMS built from source at `d686f1d`):
+
+| Case | Result | Solve time |
+|---|---|---|
+| Half-wave dipole, 70 mm | S11 = −24.2 dB at 1.855 GHz, D = 2.17 dBi, efficiency 101 % | about 30 s |
+| Patch 32×40 mm on RO4003C, 1.524 mm | S11 = −22.9 dB at 2.30 GHz, D = 6.65 dBi, efficiency 87.7 % | about 100 s |
+
+The patch efficiency differs from the Windows run above (93 %); the cause has not been established.
 
 ## Known limitations / next steps
 
