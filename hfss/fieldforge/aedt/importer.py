@@ -411,6 +411,11 @@ class _Importer:
         self._ports(p, res, bnds)
         if not p.ports:
             r.notes.append("No supported excitation was found; add a lumped port before simulating")
+        try:
+            from ..solver import port_gaps
+            r.notes += port_gaps(p)
+        except Exception as exc:  # noqa: BLE001  (never fail an import over a diagnostic)
+            r.notes.append(f"Port connectivity check skipped: {exc}")
         return p, r
 
     # ------------------------------------------------------------------ ports

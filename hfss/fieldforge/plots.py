@@ -244,6 +244,7 @@ class FarField3D(QWidget):
         r = np.clip((d_db - (d_db.max() - dyn)) / dyn, 0, 1)
 
         scale = 1.0
+        centre = np.zeros(3)
         variables = None
         if project is not None and project.objects:
             try:
@@ -251,11 +252,14 @@ class FarField3D(QWidget):
                 from .solver import model_bounds
                 lo, hi = model_bounds(project, variables)
                 scale = float(np.linalg.norm(hi - lo)) * 0.9
+                # far-field directions are position independent; draw the pattern around the model
+                # (imported designs are often far from the origin, e.g. ~150 mm for ring_antenna_v1)
+                centre = 0.5 * (np.asarray(lo, float) + np.asarray(hi, float))
             except Exception:  # noqa: BLE001
                 variables = None
-        x = scale * r * np.sin(th) * np.cos(ph)
-        y = scale * r * np.sin(th) * np.sin(ph)
-        z = scale * r * np.cos(th)
+        x = centre[0] + scale * r * np.sin(th) * np.cos(ph)
+        y = centre[1] + scale * r * np.sin(th) * np.sin(ph)
+        z = centre[2] + scale * r * np.cos(th)
         grid = pv.StructuredGrid(x, y, z)
         grid["dB(DirTotal)"] = d_db.ravel(order="F")
         p.add_mesh(grid, scalars="dB(DirTotal)", cmap="jet", opacity=0.85, smooth_shading=True,

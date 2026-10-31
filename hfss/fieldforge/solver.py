@@ -130,6 +130,12 @@ def build_mesh(project: Project, variables, rlo, rhi, scale: float = 1.0) -> lis
             thick = b[i] - a[i]
             if thick < 1e-9 * max(1.0, abs(a[i])):
                 hard[i].append(a[i])
+            elif mat.conductor:
+                # A conductor's extent must not be moved by line merging: snapping its edge onto a
+                # neighbouring line leaves no metal on that line, so the conductor shrinks by up to a
+                # cell and small gaps silently open or close. Example: an imported HFSS lumped port
+                # 43 um short of the ground edge became a 1.4 mm gap and the port read as open.
+                hard[i] += [a[i], b[i]]
             # resolve thin dielectric layers (substrates) with at least four cells (more when refined)
             if 0 < thick < n_thin * max_res and not mat.conductor:
                 lines[i] += list(np.linspace(a[i], b[i], n_thin + 1))
@@ -169,6 +175,44 @@ def build_mesh(project: Project, variables, rlo, rhi, scale: float = 1.0) -> lis
     return [_smooth(lines[i], max_res, hard[i], tol) for i in range(3)], max_res
 
 
+def port_gaps(project: Project, variables=None) -> list[str]:
+    """Warnings for lumped-port ends that do not touch any conductor.
+
+    Uses conductor bounding boxes, which can only under-estimate a gap: a reported gap is real, while a
+    port end inside a box (e.g. over a hole) is not flagged. A floating port end reads as an open circuit
+    (or a small gap capacitance), which is usually a modelling mistake in the source design.
+    """
+    variables = project.resolved_variables() if variables is None else variables
+    boxes = []
+    for obj in project.objects:
+        if project.material(obj.material).conductor:
+            a, b = obj.bounds(variables, project)
+            boxes.append((obj.name, np.asarray(a, float), np.asarray(b, float)))
+    out = []
+    for port in project.ports:
+        a, b = (np.asarray(c, float) for c in port.corners(variables))
+        ax = AXES.index(port.axis.upper())
+        for end in (a[ax], b[ax]):
+            pt = 0.5 * (a + b)
+            pt[ax] = end
+            if not boxes:
+                continue
+            dists = [(float(np.linalg.norm(np.maximum(0, np.maximum(lo - pt, pt - hi)))), name) for name, lo, hi in boxes]
+            d, name = min(dists)
+            if d > 1e-9 * max(1.0, float(np.abs(pt).max())):
+                out.append(f"Port '{port.name}': the end at {port.axis.lower()} = {end:g} {project.units} does not touch "
+                           f"a conductor (nearest: {name}, {d * project.unit_scale() * 1e6:.0f} um away). The port is "
+                           f"floating there and will behave like an open circuit through a gap capacitance.")
+    return out
+
+
+def sheet_slab(mesh, max_res) -> float:
+    """Thickness given to zero-thickness sheets so their mesh plane lies inside them. Kept below the
+    smallest cell so a sheet never reaches the neighbouring line (which would close real gaps)."""
+    min_cell = min(float(np.diff(m).min()) for m in mesh if len(m) > 1)
+    return min(max_res / 5, 0.9 * min_cell)
+
+
 def build_simulation(project: Project, sim_path: str | None = None, scale: float = 1.0):
     """Return (FDTD, CSX, ports, nf2ff, info dict, mesh). `scale` refines the mesh (adaptive passes)."""
     ContinuousStructure, openEMS = _import_openems()
@@ -190,6 +234,17 @@ def build_simulation(project: Project, sim_path: str | None = None, scale: float
     mesh, max_res = build_mesh(project, variables, rlo, rhi, scale)
     for i, ax in enumerate("xyz"):
         grid.SetLines(ax, mesh[i])
+
+    # Timestep budget from the mesh. The FDTD timestep is set by the smallest cells (Courant limit), so
+    # fine features (e.g. 23 um copper offsets in imported designs) can make a fixed budget too short to
+    # even finish the excitation pulse. Allow 20 excitation lengths; openEMS stops earlier once the energy
+    # has decayed to the end criterion.
+    unit = project.unit_scale()
+    dmin = [float(np.diff(m).min()) * unit for m in mesh]
+    dt_est = 1.0 / (C0 * np.sqrt(sum(1.0 / d ** 2 for d in dmin)))
+    t_exc = 2 * 9 / (2 * np.pi * fc)                # openEMS Gauss pulse length
+    nrts = max(int(s.max_timesteps), int(20 * t_exc / dt_est))
+    fdtd.SetNumberOfTimeSteps(nrts)
 
     # Materials: one CSX property per (material) and one primitive per object.
     props = {}
@@ -221,9 +276,20 @@ def build_simulation(project: Project, sim_path: str | None = None, scale: float
         elif obj.kind == "cad":
             from . import cad
             # sheets get a thickness of two snapping tolerances so the mesh plane they sit on is inside
-            pts, tris = cad.mesh(project, obj, slab=max_res / 5)
+            pts, tris = cad.mesh(project, obj, slab=sheet_slab(mesh, max_res))
             if len(tris) == 0:
                 continue
+            if mat.conductor:
+                # CSXCAD treats points exactly on a polyhedron's surface as outside, so a conductor whose
+                # edge sits on a mesh line (as every conductor extent does, see build_mesh) would have no
+                # metal on that line. Grow it outward along each axis by 0.1 % of the smallest cell so
+                # its bounding planes are inside. (Boxes/rectangles are inclusive already.)
+                pts = np.asarray(pts, float)
+                lo_p, hi_p = pts.min(axis=0), pts.max(axis=0)
+                c, half = 0.5 * (lo_p + hi_p), 0.5 * (hi_p - lo_p)
+                grow = 1e-3 * min(float(np.diff(m).min()) for m in mesh if len(m) > 1)
+                k = np.where(half > grow, 1.0 + grow / np.maximum(half, 1e-30), 1.0)
+                pts = c + (pts - c) * k
             poly = prop.AddPolyhedron(priority=prio)
             for q in pts:
                 poly.AddVertex(float(q[0]), float(q[1]), float(q[2]))
@@ -244,8 +310,9 @@ def build_simulation(project: Project, sim_path: str | None = None, scale: float
         "cells": int(np.prod([len(m) for m in mesh])),
         "mesh_lines": [len(m) for m in mesh],
         "max_res": max_res,
+        "min_cell": min(float(np.diff(m).min()) for m in mesh if len(m) > 1),
         "region": (rlo.tolist(), rhi.tolist()),
-        "f0": f0, "fc": fc, "scale": scale,
+        "f0": f0, "fc": fc, "scale": scale, "nrts": nrts, "dt_est": dt_est,
     }
     return fdtd, csx, ports, nf2ff, info, mesh
 
@@ -266,15 +333,22 @@ def solve(project_file: str, out_dir: str) -> str:
     if not any(p.excited for p in project.ports):
         raise RuntimeError("No port is excited.")
 
+    for w in port_gaps(project):
+        print(f"[FieldForge] WARNING: {w}", flush=True)
+
     def run_pass(scale: float):
         fdtd, csx, ports, nf2ff, info, mesh = build_simulation(project, sim_path, scale)
         print(f"[FieldForge] Mesh: {info['mesh_lines'][0]} x {info['mesh_lines'][1]} x "
               f"{info['mesh_lines'][2]} = {info['cells']:,} cells "
-              f"(max cell {info['max_res']:.3g} {project.units})", flush=True)
-        print(f"[FieldForge] NrTS={s.max_timesteps}  end criteria {s.end_criteria_db} dB", flush=True)
+              f"(cells {info['min_cell']:.3g}-{info['max_res']:.3g} {project.units})", flush=True)
+        note = "" if info["nrts"] == int(s.max_timesteps) else f" (raised from {s.max_timesteps} for the mesh's small cells)"
+        print(f"[FieldForge] Max timesteps {info['nrts']:,}{note}, timestep ~{info['dt_est'] * 1e12:.3g} ps, "
+              f"end criteria {s.end_criteria_db} dB", flush=True)
         ret = fdtd.Run(sim_path, cleanup=True, verbose=1)
         if ret:
-            raise RuntimeError(f"openEMS setup failed (code {ret})")
+            raise RuntimeError(f"openEMS returned code {ret}: usually the timestep limit ({info['nrts']:,}) was reached "
+                               f"before the field energy decayed to {s.end_criteria_db} dB, so the S-parameters would "
+                               f"be truncated and wrong. Raise 'Max time steps' or relax the end criterion.")
         print("[FieldForge] Post-processing ports...", flush=True)
         for p in ports:
             p.CalcPort(sim_path, f)
