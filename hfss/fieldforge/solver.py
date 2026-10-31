@@ -55,19 +55,57 @@ def model_bounds(project: Project, variables) -> tuple[np.ndarray, np.ndarray]:
     return lo, hi
 
 
-def region_bounds(project: Project, variables) -> tuple[np.ndarray, np.ndarray]:
-    """Simulation domain: model bounding box plus padding (lambda/4 at f_start when 'auto')."""
+def region_bounds(project: Project, variables, notes: list | None = None) -> tuple[np.ndarray, np.ndarray]:
+    """Simulation domain: model bounding box plus padding (lambda/4 at f_start when 'auto').
+
+    Absorbing faces (PML occupies the outermost 8 cells, Mur sits on the boundary) are pushed out if
+    the model or a port comes closer than ABSORBER_CELLS cells. HFSS designs often put wave ports on
+    the region boundary; an FDTD lumped port there would sit inside the absorber and carry no current.
+    """
+    mlo, mhi = model_bounds(project, variables)
     if project.region.explicit:
         e = project.region.explicit
-        return np.array([e[0], e[2], e[4]], float), np.array([e[1], e[3], e[5]], float)
-    lo, hi = model_bounds(project, variables)
-    pad_expr = project.region.padding.strip()
-    if pad_expr.lower() == "auto":
-        f_lo = max(float(project.setup.f_start), 0.25 * float(project.setup.f_stop)) * 1e9
-        pad = C0 / f_lo / 4 / project.unit_scale()
+        lo, hi = np.array([e[0], e[2], e[4]], float), np.array([e[1], e[3], e[5]], float)
     else:
-        pad = evaluate(pad_expr, variables)
-    return lo - pad, hi + pad
+        pad_expr = project.region.padding.strip()
+        if pad_expr.lower() == "auto":
+            f_lo = max(float(project.setup.f_start), 0.25 * float(project.setup.f_stop)) * 1e9
+            pad = C0 / f_lo / 4 / project.unit_scale()
+        else:
+            pad = evaluate(pad_expr, variables)
+        lo, hi = mlo - pad, mhi + pad
+    res = max_cell(project)
+    for face, bc in enumerate(project.region.boundaries):
+        if bc not in ("PML_8", "MUR") and not bc.startswith("PML"):
+            continue
+        need = (ABSORBER_CELLS if bc.startswith("PML") else 2) * res
+        i, upper = face // 2, face % 2 == 1
+        if upper and hi[i] - mhi[i] < need:
+            new = mhi[i] + need
+            if notes is not None:
+                notes.append(f"region {FACE_LABELS[face]} moved from {hi[i]:g} to {new:g} {project.units} "
+                             f"to keep the model and ports out of the absorbing boundary")
+            hi[i] = new
+        elif not upper and mlo[i] - lo[i] < need:
+            new = mlo[i] - need
+            if notes is not None:
+                notes.append(f"region {FACE_LABELS[face]} moved from {lo[i]:g} to {new:g} {project.units} "
+                             f"to keep the model and ports out of the absorbing boundary")
+            lo[i] = new
+    return lo, hi
+
+
+ABSORBER_CELLS = 12          # PML (8 cells) plus a few cells of clearance
+FACE_LABELS = ["xmin", "xmax", "ymin", "ymax", "zmin", "zmax"]
+
+
+def max_cell(project: Project) -> float:
+    """Largest allowed cell (project units): lambda_min / cells_per_wavelength in the densest dielectric."""
+    s = project.setup
+    eps_max = max([project.material(o.material).epsr * project.material(o.material).mur
+                   for o in project.objects if not project.material(o.material).conductor] + [1.0])
+    lam_min = C0 / (float(s.f_stop) * 1e9) / np.sqrt(min(eps_max, 100.0)) / project.unit_scale()
+    return lam_min / s.cells_per_wavelength
 
 
 def _merge_close(lines, hard, tol, protected=()):
@@ -86,7 +124,8 @@ def _merge_close(lines, hard, tol, protected=()):
 
     out, cluster = [], [lines[0]] if len(lines) else []
     for x in lines[1:]:
-        if x - cluster[-1] < tol and not (is_prot(x) and any(is_prot(c) for c in cluster)):
+        # measured from the cluster's first line, so a chain of close lines can't span more than tol
+        if x - cluster[0] < tol and not (is_prot(x) and any(is_prot(c) for c in cluster)):
             cluster.append(x)
             continue
         out.append(_representative(cluster, hard, prot))
@@ -137,6 +176,8 @@ def small_gaps(project: Project, variables, tol: float) -> list[dict]:
     protected line on each side of the gap along that axis is enough to keep it open.
     """
     boxes = _conductor_boxes(project, variables)
+    lo_m, hi_m = model_bounds(project, variables)
+    touch = 1e-6 * float(np.linalg.norm(hi_m - lo_m)) + 1e-9   # closer than this counts as touching
     out = []
     for i in range(len(boxes)):
         for j in range(i + 1, len(boxes)):
@@ -151,7 +192,7 @@ def small_gaps(project: Project, variables, tol: float) -> list[dict]:
             exact = _exact_distance(project, variables, na, nb)
             if exact is not None:
                 d = exact
-            if not 0 < d < tol:
+            if not touch < d < tol:
                 continue
             k = int(np.argmax(gap))
             if lb[k] - ha[k] > 0:
@@ -281,13 +322,41 @@ def build_mesh(project: Project, variables, rlo, rhi) -> list[np.ndarray]:
         for i in range(3):
             lines[i] += [a[i], b[i]]
             hard[i] += [a[i], b[i]]
-    tol = max_res / 10
+    tols = merge_tolerances(project, variables, max_res)
     # never merge across a gap between two conductors (or a port terminal and a conductor):
     # that would change the circuit topology, e.g. connect a port that is floating in the source design
     protected = [[], [], []]
-    for g in small_gaps(project, variables, tol):
+    for g in small_gaps(project, variables, max(tols)):
         protected[g["axis"]] += list(g["faces"])
-    return [_smooth(lines[i], max_res, hard[i], tol, protected[i]) for i in range(3)], max_res
+    # a port's two terminals along its current direction must stay on different mesh lines
+    for port in project.ports:
+        a, b = port.corners(variables)
+        ax = AXES.index(port.axis)
+        protected[ax] += [a[ax], b[ax]]
+    return [_smooth(lines[i], max_res, hard[i], tols[i], protected[i]) for i in range(3)], max_res
+
+
+def merge_tolerances(project: Project, variables, max_res: float) -> list[float]:
+    """Per-axis distance below which mesh lines are merged.
+
+    max_res/10 by default, but never more than a quarter of the smallest port length or dielectric
+    layer along that axis, so thin substrates keep their cells and ports keep their length.
+    """
+    feats = [[], [], []]
+    for port in project.ports:
+        a, b = port.corners(variables)
+        ax = AXES.index(port.axis)
+        if abs(b[ax] - a[ax]) > 0:
+            feats[ax].append(abs(b[ax] - a[ax]))
+    for obj in project.objects:
+        mat = project.material(obj.material)
+        if mat.conductor or (obj.kind == "cad" and obj.material in ("vacuum", "air")):
+            continue
+        lo, hi = obj.bounds(variables, project)
+        for i in range(3):
+            if hi[i] - lo[i] > 0:
+                feats[i].append(hi[i] - lo[i])
+    return [min([max_res / 10] + [f / 4 for f in feats[i]]) for i in range(3)]
 
 
 def build_simulation(project: Project, sim_path: str | None = None):
@@ -341,16 +410,23 @@ def build_simulation(project: Project, sim_path: str | None = None):
             prop.AddSphere(c, v["radius"], priority=prio)
         elif obj.kind == "cad":
             from . import cad
-            # sheets get a thickness of two snapping tolerances so the mesh plane they sit on is inside
-            pts, tris = cad.mesh(project, obj, slab=max_res / 5)
-            if len(tris) == 0:
-                continue
-            poly = prop.AddPolyhedron(priority=prio)
-            for q in pts:
-                poly.AddVertex(float(q[0]), float(q[1]), float(q[2]))
-            for t in tris:
-                poly.AddFace([int(t[0]), int(t[1]), int(t[2])])
+            slab = SlabThickness(mesh, max_res)
+            for pts, tris in cad.solid_meshes(project, obj, slab=slab):
+                poly = prop.AddPolyhedron(priority=prio)
+                for q in pts:
+                    poly.AddVertex(float(q[0]), float(q[1]), float(q[2]))
+                for t in tris:
+                    poly.AddFace([int(t[0]), int(t[1]), int(t[2])])
 
+    for port in project.ports:
+        a, b = port.corners(variables)
+        ax = AXES.index(port.axis)
+        m = np.asarray(mesh[ax])
+        ia, ib = int(np.argmin(np.abs(m - a[ax]))), int(np.argmin(np.abs(m - b[ax])))
+        if ia == ib:
+            raise RuntimeError(f"Port '{port.name}' has no length on the mesh along {port.axis} "
+                               f"({a[ax]:g} to {b[ax]:g} {project.units} snap to the same line). "
+                               "Refine the mesh or lengthen the port.")
     ports = []
     for n, port in enumerate(project.ports, start=1):
         a, b = port.corners(variables)
@@ -371,6 +447,62 @@ def build_simulation(project: Project, sim_path: str | None = None):
     return fdtd, csx, ports, nf2ff, info, mesh
 
 
+class SlabThickness:
+    """Thickness for a sheet face lying on a given plane (see sheet_slab_thickness)."""
+
+    def __init__(self, mesh, max_res):
+        self.mesh = [np.asarray(m) for m in mesh]
+        self.cap = max_res / 5
+        self.key = (tuple(len(m) for m in mesh), round(max_res, 9),
+                    tuple(round(float(m.sum()), 9) for m in self.mesh))
+
+    def __call__(self, axis, coord):
+        if axis is None:
+            return self.cap
+        d = np.sort(np.abs(self.mesh[axis] - coord))
+        if len(d) < 2:
+            return self.cap
+        d0, d1 = d[0], d[1]      # own plane (normally 0) and the next mesh line
+        t = d0 + d1              # centred on the sheet: contains the nearest line, excludes the next
+        if t > self.cap and self.cap / 2 > 1.2 * d0:
+            t = self.cap
+        return float(t)
+
+    def __hash__(self):
+        return hash(self.key)
+
+    def __eq__(self, other):
+        return isinstance(other, SlabThickness) and other.key == self.key
+
+
+def sheet_slab_thickness(project: Project, obj, variables, mesh, max_res: float) -> float:
+    """Thickness given to a zero-thickness sheet so openEMS sees it as a closed solid.
+
+    It must contain the mesh plane the sheet sits on and nothing else: the slab is centred on the sheet
+    and reaches halfway between that plane and the next mesh line (at most max_res/5). A fixed thickness would, on a thin
+    substrate, reach the neighbouring planes and fill the dielectric with metal.
+    """
+    from . import cad
+    if cad.kind(project, obj) != "sheet":
+        return 0.0
+    lo, hi = obj.bounds(variables, project)
+    ext = np.subtract(hi, lo)
+    ax = int(np.argmin(ext))
+    cap = max_res / 5
+    if ext[ax] > 1e-9 * max(1.0, abs(lo[ax])):
+        return cap  # not an axis-aligned sheet: fall back to the default
+    m = np.asarray(mesh[ax])
+    d = np.sort(np.abs(m - lo[ax]))
+    if len(d) < 2:
+        return cap
+    d0, d1 = d[0], d[1]          # own plane (normally 0) and the next mesh line
+    # centred on the sheet, thickness d0 + d1 contains the nearest line and excludes the next one
+    t = d0 + d1
+    if t > cap and cap / 2 > 1.2 * d0:
+        t = cap
+    return float(t)
+
+
 def _safe(name: str) -> str:
     return "".join(ch if ch.isalnum() or ch == "_" else "_" for ch in name)
 
@@ -389,6 +521,10 @@ def solve(project_file: str, out_dir: str) -> str:
 
     fdtd, csx, ports, nf2ff, info, mesh = build_simulation(project, sim_path)
     variables = project.resolved_variables()
+    notes = []
+    region_bounds(project, variables, notes)
+    for n in notes:
+        print(f"[FieldForge] Note: {n}", flush=True)
     for g in small_gaps(project, variables, info["max_res"] / 10):
         print(f"[FieldForge] Kept a {g['distance'] * 1000:.1f} um gap between '{g['a']}' and '{g['b']}' "
               f"open (separate mesh lines along {'xyz'[g['axis']]})", flush=True)
@@ -417,6 +553,13 @@ def solve(project_file: str, out_dir: str) -> str:
         print(f"[FieldForge] WARNING: port '{project.ports[exc].name}' carried no current (|S11| = 1 at every "
               f"frequency). The port is not driving the structure; check that its terminals and mesh lines "
               f"are placed correctly. These results are not meaningful.", flush=True)
+    power = np.sum(np.abs(S) ** 2, axis=0)
+    bad = power > 1.05
+    if np.any(bad):
+        # a passive structure cannot return more power than it receives
+        print(f"[FieldForge] WARNING: power balance violated (sum |S_i1|^2 up to {power.max():.2f}) between "
+              f"{f[bad].min() / 1e9:.3g} and {f[bad].max() / 1e9:.3g} GHz; results there are unreliable "
+              f"(port model or mesh too coarse; try more cells per wavelength)", flush=True)
     Zin = np.array([p.uf_tot / p.if_tot for p in ports])
     P_acc = np.array([np.real(p.P_acc) for p in ports])
 

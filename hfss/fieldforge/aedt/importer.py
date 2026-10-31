@@ -399,9 +399,14 @@ class _Importer:
             r.notes.append("No supported excitation was found; add a lumped port before simulating")
         else:
             try:
-                from ..solver import connectivity_warnings
+                from ..solver import connectivity_warnings, region_bounds
                 for msg in connectivity_warnings(p, self.var_values):
                     r.notes.append(msg)
+                moved = []
+                region_bounds(p, self.var_values, moved)
+                for m in moved:
+                    r.notes.append(f"Simulation {m} (HFSS wave ports on the region boundary need room for "
+                                   "the FDTD absorber)")
             except Exception as exc:  # noqa: BLE001 - the check is advisory
                 r.notes.append(f"Port connectivity could not be checked: {exc}")
         return p, r
