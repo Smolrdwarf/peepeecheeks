@@ -21,3 +21,7 @@ Several agents may be working here at the same time. To avoid stepping on each o
 - RE tools: `~/tools/re/ghidra_12.2_PUBLIC` (Ghidra), `~/tools/re/recaf` (Recaf, a Java bytecode editor)
 - Ansys HFSS / AEDT is **not** installed on this machine as of 2026-10-31
 - `gh` CLI is not installed. Use plain `git` against `origin` (github.com/Smolrdwarf/peepeecheeks)
+
+## Licence
+
+FieldForge is licensed under the GNU General Public License v3.0 or later. See [LICENSE](LICENSE). Licences for the open-source components it uses are listed in [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).
