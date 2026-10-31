@@ -39,8 +39,8 @@ def hammerstad_jensen(er, w, h):
     return z01 / np.sqrt(eeff), eeff
 
 
-def main(res_div=80, edge_div=8, nz_sub=11, top=12, side=15, tag="") -> CaseResult:
-    t0 = time.time()
+def build(res_div=80, edge_div=8, nz_sub=11, top=12, side=15):
+    """Create the openEMS model; returns (fdtd, ports, n_cells) without running it."""
     fdtd = openEMS(EndCriteria=1e-5)
     fdtd.SetGaussExcite(f_max / 2, f_max / 2)
     fdtd.SetBoundaryCond(['PML_8', 'PML_8', 'MUR', 'MUR', 'PEC', 'MUR'])
@@ -55,7 +55,7 @@ def main(res_div=80, edge_div=8, nz_sub=11, top=12, side=15, tag="") -> CaseResu
     mesh.AddLine('y', 0); mesh.AddLine('y', w / 2 + third); mesh.AddLine('y', -w / 2 - third)
     mesh.SmoothMeshLines('y', res / edge_div)
     mesh.AddLine('y', [-side * w, side * w]); mesh.SmoothMeshLines('y', res)
-    mesh.AddLine('z', np.linspace(0, h, nz_sub)); mesh.AddLine('z', top * h); mesh.SmoothMeshLines('z', res)
+    mesh.AddLine('z', np.linspace(0, h, int(round(nz_sub)))); mesh.AddLine('z', top * h); mesh.SmoothMeshLines('z', res)
 
     sub = csx.AddMaterial('RO4003C', epsilon=er)
     sub.AddBox([-L, -side * w, 0], [L, side * w, h])
@@ -66,9 +66,15 @@ def main(res_div=80, edge_div=8, nz_sub=11, top=12, side=15, tag="") -> CaseResu
         fdtd.AddMSLPort(2, pec, [L, -w / 2, h], [0, w / 2, 0], 'x', 'z',
                         MeasPlaneShift=L / 3, priority=10),
     ]
+    n_cells = int(np.prod([len(mesh.GetLines(ax)) for ax in 'xyz']))  # openEMS convention
+    return fdtd, ports, n_cells
+
+
+def simulate(tag="", **mesh_kw):
+    """Build + run; returns freq, Z0(f), eps_eff(f), S11(f), S21(f) (50 ohm reference), n_cells."""
+    fdtd, ports, n_cells = build(**mesh_kw)
     path = sim_path(CASE + tag)
     fdtd.Run(path, cleanup=True, verbose=0)
-
     freq = np.linspace(0.5e9, f_max, 221)
     ports[0].CalcPort(path, freq)                 # Z_ref = numerical line impedance from probes
     z0_num = np.real(ports[0].Z_ref)
@@ -77,6 +83,13 @@ def main(res_div=80, edge_div=8, nz_sub=11, top=12, side=15, tag="") -> CaseResu
         p.CalcPort(path, freq, ref_impedance=50)  # S-parameters referenced to 50 ohm
     s11 = ports[0].uf_ref / ports[0].uf_inc
     s21 = ports[1].uf_ref / ports[0].uf_inc
+    return dict(freq=freq, z0=z0_num, eeff=eeff_num, s11=s11, s21=s21, n_cells=n_cells, path=path)
+
+
+def main(tag="", **mesh_kw) -> CaseResult:
+    t0 = time.time()
+    out = simulate(tag, **mesh_kw)
+    freq, z0_num, eeff_num, s11, s21, path = (out[k] for k in ("freq", "z0", "eeff", "s11", "s21", "path"))
     z0_an, eeff_an = hammerstad_jensen(er, w, h)
     np.savetxt(Path(path) / "curves.csv", np.c_[freq, z0_num, eeff_num], delimiter=",", header="f,z0,eeff")
     i = np.argmin(abs(freq - f_eval))

@@ -13,7 +13,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from common import RESULTS  # noqa: E402  (also sets the openEMS DLL path)
 
-CASES = ["wr90_waveguide", "cavity_eigenmode", "microstrip_line", "pec_sphere_rcs"]
+CASES = ["wr90_waveguide", "cavity_eigenmode", "microstrip_line", "pec_sphere_rcs", "microstrip_adaptive"]
 
 
 def fmt_tol(m):

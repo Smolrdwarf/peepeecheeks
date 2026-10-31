@@ -1,0 +1,55 @@
+{
+  "case": "microstrip_adaptive",
+  "description": "Adaptive mesh loop (max|dS| < 0.02) on the case-3 microstrip, from the tutorial mesh",
+  "hfss_equivalent": "Adaptive passes with Maximum Delta S = 0.02, Minimum Converged Passes = 1",
+  "metrics": [
+    {
+      "name": "final max|dS| between passes",
+      "unit": "-",
+      "openems": 0.001418274273264866,
+      "reference": 0.02,
+      "reference_source": "hfss-criterion",
+      "tol_pct": null,
+      "tol_abs": null,
+      "upper_bound": true,
+      "error_abs": -0.018581725726735134,
+      "error_pct": -92.90862863367568,
+      "passed": true
+    },
+    {
+      "name": "converged Z0 @ 2 GHz",
+      "unit": "ohm",
+      "openems": 51.80875592160661,
+      "reference": 52.144888937484865,
+      "reference_source": "analytic",
+      "tol_pct": 2.0,
+      "tol_abs": null,
+      "upper_bound": false,
+      "error_abs": -0.3361330158782536,
+      "error_pct": -0.6446135426258836,
+      "passed": true
+    },
+    {
+      "name": "converged eps_eff @ 2 GHz",
+      "unit": "-",
+      "openems": 2.6747014204376214,
+      "reference": 2.661572300025273,
+      "reference_source": "analytic",
+      "tol_pct": 2.0,
+      "tol_abs": null,
+      "upper_bound": false,
+      "error_abs": 0.01312912041234826,
+      "error_pct": 0.49328437977144535,
+      "passed": true
+    }
+  ],
+  "runtime_s": 186.40068340301514,
+  "notes": [
+    "max|dS| 0.0014 < 0.02 for 1 consecutive pass(es)",
+    "pass 1: scale 1.000, 173,907 cells, 52s, max|dS| -, Z0 50.80 ohm, eps_eff 2.8911",
+    "pass 2: scale 1.250, 284,394 cells, 44s, max|dS| 0.2470, Z0 51.77 ohm, eps_eff 2.6757",
+    "pass 3: scale 1.562, 592,900 cells, 91s, max|dS| 0.0014, Z0 51.81 ohm, eps_eff 2.6747",
+    "no HFSS reference supplied (references/hfss/microstrip_adaptive.csv); compared to analytic only"
+  ],
+  "passed": true
+}

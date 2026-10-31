@@ -8,6 +8,7 @@ Generated 2026-10-31 by `run_all.py` — openEMS 0.37.0, Python 3.14.3, Windows 
 | `cavity_eigenmode` | PASS | 45 s |
 | `microstrip_line` | PASS | 87 s |
 | `pec_sphere_rcs` | **FAIL** | 176 s |
+| `microstrip_adaptive` | PASS | 186 s |
 
 ## `wr90_waveguide` — WR-90 straight guide, TE10, 8-12 GHz
 
@@ -77,3 +78,21 @@ HFSS equivalent: Driven Modal, incident plane wave, monostatic RCS far-field swe
 
 - FDTD cell = lambda/25 at 1 GHz, 6 mm around sphere; staircased sphere
 - no HFSS reference supplied (references/hfss/pec_sphere_rcs.csv); compared to analytic only
+
+## `microstrip_adaptive` — Adaptive mesh loop (max|dS| < 0.02) on the case-3 microstrip, from the tutorial mesh
+
+HFSS equivalent: Adaptive passes with Maximum Delta S = 0.02, Minimum Converged Passes = 1
+
+![microstrip_adaptive](microstrip_adaptive.png)
+
+| Metric | openEMS | Reference | Source | Error | Tolerance | |
+|---|---|---|---|---|---|---|
+| final max|dS| between passes | 0.0014183 - | 0.02 | hfss-criterion | -0.0186 - | <= 0.02 | ok |
+| converged Z0 @ 2 GHz | 51.809 ohm | 52.145 | analytic | -0.645 % | ±2 % | ok |
+| converged eps_eff @ 2 GHz | 2.6747 - | 2.6616 | analytic | +0.493 % | ±2 % | ok |
+
+- max|dS| 0.0014 < 0.02 for 1 consecutive pass(es)
+- pass 1: scale 1.000, 173,907 cells, 52s, max|dS| -, Z0 50.80 ohm, eps_eff 2.8911
+- pass 2: scale 1.250, 284,394 cells, 44s, max|dS| 0.2470, Z0 51.77 ohm, eps_eff 2.6757
+- pass 3: scale 1.562, 592,900 cells, 91s, max|dS| 0.0014, Z0 51.81 ohm, eps_eff 2.6747
+- no HFSS reference supplied (references/hfss/microstrip_adaptive.csv); compared to analytic only
