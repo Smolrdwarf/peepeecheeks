@@ -96,6 +96,21 @@ def _representative(cluster, hard, tol):
     return [float(cluster[0] if len(cluster) == 1 else np.mean([cluster[0], cluster[-1]]))]
 
 
+def _collapse(values, feat):
+    """Merge values closer than `feat` (chain clustering) into their cluster's midpoint."""
+    v = np.unique(np.round(np.asarray(values, dtype=float), 9))
+    if feat <= 0 or len(v) < 2:
+        return list(v)
+    out, cl = [], [v[0]]
+    for x in v[1:]:
+        if x - cl[-1] < feat:
+            cl.append(x)
+        else:
+            out.append(0.5 * (cl[0] + cl[-1])); cl = [x]
+    out.append(0.5 * (cl[0] + cl[-1]))
+    return out
+
+
 def _smooth(lines, max_res, hard=(), tol=0.0):
     """Smooth mesh lines so no cell exceeds max_res and neighbours grow by <= 1.4x."""
     from CSXCAD.SmoothMeshLines import SmoothMeshLines
@@ -171,6 +186,15 @@ def build_mesh(project: Project, variables, rlo, rhi, scale: float = 1.0) -> lis
                 lines[i].append(0.5 * (a[i] + b[i]))
                 hard[i].append(0.5 * (a[i] + b[i]))
     tol = min(max_res / 10, min_edge / 2, min_layer / 2)
+    feat = float(getattr(s, "min_feature", 0.0) or 0.0)
+    if feat > 0:
+        # Unresolved features: fixed planes closer than `feat` become one line at their midpoint and
+        # conductors are grown by feat/2 in build_simulation so they still reach it.
+        tol = max(tol, feat)
+        for i in range(3):
+            fixed = _collapse(hard[i], feat)
+            hard[i] = fixed
+            lines[i] = [x for x in lines[i] if np.min(np.abs(np.asarray(fixed) - x)) >= feat] + fixed if fixed else lines[i]
     lines = [np.clip(lines[i], rlo[i], rhi[i]) for i in range(3)]
     return [_smooth(lines[i], max_res, hard[i], tol) for i in range(3)], max_res
 
@@ -211,6 +235,11 @@ def sheet_slab(mesh, max_res) -> float:
     smallest cell so a sheet never reaches the neighbouring line (which would close real gaps)."""
     min_cell = min(float(np.diff(m).min()) for m in mesh if len(m) > 1)
     return min(max_res / 5, 0.9 * min_cell)
+
+
+def _slab_for(project, mesh, max_res):
+    feat = float(getattr(project.setup, "min_feature", 0.0) or 0.0)
+    return max(sheet_slab(mesh, max_res), 1.01 * feat)
 
 
 def build_simulation(project: Project, sim_path: str | None = None, scale: float = 1.0):
@@ -276,7 +305,7 @@ def build_simulation(project: Project, sim_path: str | None = None, scale: float
         elif obj.kind == "cad":
             from . import cad
             # sheets get a thickness of two snapping tolerances so the mesh plane they sit on is inside
-            pts, tris = cad.mesh(project, obj, slab=sheet_slab(mesh, max_res))
+            pts, tris = cad.mesh(project, obj, slab=_slab_for(project, mesh, max_res))
             if len(tris) == 0:
                 continue
             if mat.conductor:
@@ -284,12 +313,17 @@ def build_simulation(project: Project, sim_path: str | None = None, scale: float
                 # edge sits on a mesh line (as every conductor extent does, see build_mesh) would have no
                 # metal on that line. Grow it outward along each axis by 0.1 % of the smallest cell so
                 # its bounding planes are inside. (Boxes/rectangles are inclusive already.)
-                pts = np.asarray(pts, float)
+                pts = np.array(pts, float)
                 lo_p, hi_p = pts.min(axis=0), pts.max(axis=0)
-                c, half = 0.5 * (lo_p + hi_p), 0.5 * (hi_p - lo_p)
                 grow = 1e-3 * min(float(np.diff(m).min()) for m in mesh if len(m) > 1)
-                k = np.where(half > grow, 1.0 + grow / np.maximum(half, 1e-30), 1.0)
-                pts = c + (pts - c) * k
+                grow = max(grow, 0.5 * float(getattr(s, "min_feature", 0.0) or 0.0) * 1.01)
+                # move only vertices on the outer bounding planes (scaling about the centre would also
+                # move interior faces, e.g. the ground layer of a sheet that spans two heights)
+                eps = 1e-9 * max(1.0, float(np.abs(pts).max()))
+                for i in range(3):
+                    if hi_p[i] - lo_p[i] > eps:
+                        pts[np.abs(pts[:, i] - lo_p[i]) < eps, i] -= grow
+                        pts[np.abs(pts[:, i] - hi_p[i]) < eps, i] += grow
             poly = prop.AddPolyhedron(priority=prio)
             for q in pts:
                 poly.AddVertex(float(q[0]), float(q[1]), float(q[2]))

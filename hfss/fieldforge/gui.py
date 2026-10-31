@@ -617,6 +617,7 @@ class MainWindow(QMainWindow):
                  num("cells_per_wavelength", int), None),
                 ("Mesh: refine conductor edges", s.edge_refinement, "check",
                  attr_setter(s, "edge_refinement", bool), None),
+                ("Mesh: ignore features smaller than", f"{s.min_feature:g}", "text", num("min_feature"), None),
                 ("Adaptive passes", s.adaptive, "check", attr_setter(s, "adaptive", bool), None),
                 ("Adaptive: maximum number of passes", str(s.max_passes), "text", num("max_passes", int), None),
                 ("Adaptive: maximum delta S", f"{s.max_delta_s:g}", "text", num("max_delta_s"), None),

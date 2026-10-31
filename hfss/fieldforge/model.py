@@ -221,6 +221,9 @@ class Setup:
     farfield_step_deg: float = 3.0
     # Mesh refinement around conductor-sheet edges (where FDTD accuracy is lost first, e.g. microstrip)
     edge_refinement: bool = True
+    # Features smaller than this (model units) are not resolved: closer mesh lines are merged and
+    # conductors snap onto them. 0 = exact geometry. Tiny features force a tiny FDTD timestep.
+    min_feature: float = 0.0
     # HFSS-style adaptive passes: re-mesh finer until max|S_n - S_n-1| < max_delta_s
     adaptive: bool = False
     max_passes: int = 6               # HFSS "Maximum Number of Passes"
