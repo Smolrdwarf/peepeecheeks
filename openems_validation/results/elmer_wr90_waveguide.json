@@ -1,0 +1,54 @@
+{
+  "case": "elmer_wr90_waveguide",
+  "description": "WR-90 straight guide, TE10, 8-12 GHz, FEM frequency domain (Elmer)",
+  "hfss_equivalent": "Driven Modal, 2 wave ports, discrete sweep 8-12 GHz",
+  "metrics": [
+    {
+      "name": "TE10 cutoff frequency",
+      "unit": "GHz",
+      "openems": 6.558606557781201,
+      "reference": 6.557140376202975,
+      "reference_source": "analytic",
+      "tol_pct": 0.5,
+      "tol_abs": null,
+      "upper_bound": false,
+      "error_abs": 0.001466181578225978,
+      "error_pct": 0.022360076101878356,
+      "passed": true
+    },
+    {
+      "name": "beta @ 10 GHz",
+      "unit": "rad/m",
+      "openems": 158.21618576775654,
+      "reference": 158.23825631301972,
+      "reference_source": "analytic",
+      "tol_pct": 0.5,
+      "tol_abs": null,
+      "upper_bound": false,
+      "error_abs": -0.0220705452631762,
+      "error_pct": -0.013947667130202226,
+      "passed": true
+    },
+    {
+      "name": "max |S11| over band",
+      "unit": "dB",
+      "openems": -66.7934514119748,
+      "reference": -30.0,
+      "reference_source": "analytic",
+      "tol_pct": null,
+      "tol_abs": null,
+      "upper_bound": true,
+      "error_abs": -36.7934514119748,
+      "error_pct": 122.64483803991601,
+      "passed": true
+    }
+  ],
+  "runtime_s": 61.15556526184082,
+  "notes": [
+    "4,811 tetrahedra (h = 3 mm), 2nd-order edge elements, 9 frequencies",
+    "fit residual max 2.10e-02; cross-polar |Ex,Ez|/|E| max 4.53e-03; incident amplitude |A| 1.006-1.027 (1.0 expected from the port load)",
+    "no HFSS reference supplied (references/hfss/elmer_wr90_waveguide.csv); compared to analytic only"
+  ],
+  "solver": "Elmer",
+  "passed": true
+}

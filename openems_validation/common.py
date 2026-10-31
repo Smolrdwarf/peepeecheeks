@@ -67,6 +67,7 @@ class CaseResult:
     metrics: list[Metric] = field(default_factory=list)
     runtime_s: float = 0.0
     notes: list[str] = field(default_factory=list)
+    solver: str = "openEMS"        # which open-source solver produced Metric.openems
 
     @property
     def passed(self) -> bool:
@@ -83,13 +84,13 @@ class CaseResult:
         return out
 
     def print(self) -> None:
-        print(f"\n=== {self.case}: {'PASS' if self.passed else 'FAIL'}  ({self.runtime_s:.1f} s)")
+        print(f"\n=== {self.case} [{self.solver}]: {'PASS' if self.passed else 'FAIL'}  ({self.runtime_s:.1f} s)")
         for m in self.metrics:
             tol = ("<= ref" if m.upper_bound else
                    f"+/-{m.tol_abs} {m.unit}" if m.tol_abs is not None else f"+/-{m.tol_pct}%")
             err = (f"{m.error_abs:+.3g} {m.unit}" if (m.tol_abs is not None or m.upper_bound)
                    else f"{m.error_pct:+.3f}%")
-            print(f"  {m.name:<34} openEMS={m.openems:12.5g}  ref({m.reference_source})={m.reference:12.5g} "
+            print(f"  {m.name:<34} {self.solver}={m.openems:12.5g}  ref({m.reference_source})={m.reference:12.5g} "
                   f"{m.unit:<6} err={err}  tol {tol}  {'ok' if m.passed else 'FAIL'}")
         for n in self.notes:
             print("  note:", n)

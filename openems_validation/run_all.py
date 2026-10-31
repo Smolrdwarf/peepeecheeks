@@ -13,7 +13,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from common import RESULTS  # noqa: E402  (also sets the openEMS DLL path)
 
-CASES = ["wr90_waveguide", "cavity_eigenmode", "microstrip_line", "pec_sphere_rcs", "microstrip_adaptive"]
+CASES = ["wr90_waveguide", "cavity_eigenmode", "microstrip_line", "pec_sphere_rcs", "microstrip_adaptive",
+         "elmer_cavity_eigenmode", "elmer_wr90_waveguide"]
 
 
 def fmt_tol(m):
@@ -37,18 +38,18 @@ def write_summary(names):
              f"Generated {date.today()} by `run_all.py` — openEMS {getattr(openEMS, '__version__', '?')}, "
              f"Python {platform.python_version()}, {platform.system()} {platform.release()}",
              "",
-             "| Case | Result | Runtime |", "|---|---|---|"]
+             "| Case | Solver | Result | Runtime |", "|---|---|---|---|"]
     data = {}
     for n in names:
         f = RESULTS / f"{n}.json"
         if f.exists():
             data[n] = json.loads(f.read_text())
-            lines.append(f"| `{n}` | {'PASS' if data[n]['passed'] else '**FAIL**'} | {data[n]['runtime_s']:.0f} s |")
+            lines.append(f"| `{n}` | {data[n].get('solver', 'openEMS')} | {'PASS' if data[n]['passed'] else '**FAIL**'} | {data[n]['runtime_s']:.0f} s |")
     for n, d in data.items():
         lines += ["", f"## `{n}` — {d['description']}", "",
                   f"HFSS equivalent: {d['hfss_equivalent']}", "",
                   f"![{n}]({n}.png)", "",
-                  "| Metric | openEMS | Reference | Source | Error | Tolerance | |",
+                  f"| Metric | {d.get('solver', 'openEMS')} | Reference | Source | Error | Tolerance | |",
                   "|---|---|---|---|---|---|---|"]
         for m in d["metrics"]:
             lines.append(f"| {m['name']} | {m['openems']:.5g} {m['unit']} | {m['reference']:.5g} | {m['reference_source']} "

@@ -2,13 +2,15 @@
 
 Generated 2026-10-31 by `run_all.py` — openEMS 0.37.0, Python 3.14.3, Windows 11
 
-| Case | Result | Runtime |
-|---|---|---|
-| `wr90_waveguide` | PASS | 9 s |
-| `cavity_eigenmode` | PASS | 45 s |
-| `microstrip_line` | PASS | 91 s |
-| `pec_sphere_rcs` | **FAIL** | 176 s |
-| `microstrip_adaptive` | PASS | 186 s |
+| Case | Solver | Result | Runtime |
+|---|---|---|---|
+| `wr90_waveguide` | openEMS | PASS | 9 s |
+| `cavity_eigenmode` | openEMS | PASS | 45 s |
+| `microstrip_line` | openEMS | PASS | 91 s |
+| `pec_sphere_rcs` | openEMS | **FAIL** | 176 s |
+| `microstrip_adaptive` | openEMS | PASS | 186 s |
+| `elmer_cavity_eigenmode` | Elmer | PASS | 1 s |
+| `elmer_wr90_waveguide` | Elmer | PASS | 61 s |
 
 ## `wr90_waveguide` — WR-90 straight guide, TE10, 8-12 GHz
 
@@ -96,3 +98,39 @@ HFSS equivalent: Adaptive passes with Maximum Delta S = 0.02, Minimum Converged 
 - pass 2: scale 1.250, 284,394 cells, 44s, max|dS| 0.2470, Z0 51.77 ohm, eps_eff 2.6757
 - pass 3: scale 1.562, 592,900 cells, 91s, max|dS| 0.0014, Z0 51.81 ohm, eps_eff 2.6747
 - no HFSS reference supplied (references/hfss/microstrip_adaptive.csv); compared to analytic only
+
+## `elmer_cavity_eigenmode` — PEC cavity 22.86 x 10.16 x 30.0 mm, FEM eigenmodes (Elmer, 2nd-order edge elements)
+
+HFSS equivalent: Eigenmode solver, PEC boundaries, N modes
+
+![elmer_cavity_eigenmode](elmer_cavity_eigenmode.png)
+
+| Metric | Elmer | Reference | Source | Error | Tolerance | |
+|---|---|---|---|---|---|---|
+| f(TE101) | 8.2439 GHz | 8.2439 | analytic | +0.001 % | ±0.5 % | ok |
+| f(TE102) | 11.952 GHz | 11.952 | analytic | +0.001 % | ±0.5 % | ok |
+| f(TE201) | 14.035 GHz | 14.034 | analytic | +0.005 % | ±0.5 % | ok |
+| f(TE011) | 15.578 GHz | 15.577 | analytic | +0.009 % | ±0.5 % | ok |
+| f(TM110) | 16.147 GHz | 16.145 | analytic | +0.009 % | ±0.5 % | ok |
+| f(TE103) | 16.363 GHz | 16.361 | analytic | +0.009 % | ±0.5 % | ok |
+| f(TE202) | 16.489 GHz | 16.488 | analytic | +0.008 % | ±0.5 % | ok |
+| f(TE111/TM111) | 16.902 GHz | 16.901 | analytic | +0.008 % | ±0.5 % | ok |
+
+- 2,558 tetrahedra (h = 2.5 mm); eigenfrequencies found (GHz): 8.2439, 11.9525, 14.0345, 15.5781, 16.1465, 16.3626, 16.4891, 16.9019, 16.9025, 17.8224
+- no HFSS reference supplied (references/hfss/elmer_cavity_eigenmode.csv); compared to analytic only
+
+## `elmer_wr90_waveguide` — WR-90 straight guide, TE10, 8-12 GHz, FEM frequency domain (Elmer)
+
+HFSS equivalent: Driven Modal, 2 wave ports, discrete sweep 8-12 GHz
+
+![elmer_wr90_waveguide](elmer_wr90_waveguide.png)
+
+| Metric | Elmer | Reference | Source | Error | Tolerance | |
+|---|---|---|---|---|---|---|
+| TE10 cutoff frequency | 6.5586 GHz | 6.5571 | analytic | +0.022 % | ±0.5 % | ok |
+| beta @ 10 GHz | 158.22 rad/m | 158.24 | analytic | -0.014 % | ±0.5 % | ok |
+| max |S11| over band | -66.793 dB | -30 | analytic | -36.8 dB | <= -30 | ok |
+
+- 4,811 tetrahedra (h = 3 mm), 2nd-order edge elements, 9 frequencies
+- fit residual max 2.10e-02; cross-polar |Ex,Ez|/|E| max 4.53e-03; incident amplitude |A| 1.006-1.027 (1.0 expected from the port load)
+- no HFSS reference supplied (references/hfss/elmer_wr90_waveguide.csv); compared to analytic only

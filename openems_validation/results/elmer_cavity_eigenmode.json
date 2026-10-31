@@ -1,0 +1,118 @@
+{
+  "case": "elmer_cavity_eigenmode",
+  "description": "PEC cavity 22.86 x 10.16 x 30.0 mm, FEM eigenmodes (Elmer, 2nd-order edge elements)",
+  "hfss_equivalent": "Eigenmode solver, PEC boundaries, N modes",
+  "metrics": [
+    {
+      "name": "f(TE101)",
+      "unit": "GHz",
+      "openems": 8.243929551615896,
+      "reference": 8.243877215534543,
+      "reference_source": "analytic",
+      "tol_pct": 0.5,
+      "tol_abs": null,
+      "upper_bound": false,
+      "error_abs": 5.233608135313261e-05,
+      "error_pct": 0.0006348478996571164,
+      "passed": true
+    },
+    {
+      "name": "f(TE102)",
+      "unit": "GHz",
+      "openems": 11.952475827701491,
+      "reference": 11.952312597967993,
+      "reference_source": "analytic",
+      "tol_pct": 0.5,
+      "tol_abs": null,
+      "upper_bound": false,
+      "error_abs": 0.00016322973349858216,
+      "error_pct": 0.001365674903167549,
+      "passed": true
+    },
+    {
+      "name": "f(TE201)",
+      "unit": "GHz",
+      "openems": 14.034547836766247,
+      "reference": 14.03387976592729,
+      "reference_source": "analytic",
+      "tol_pct": 0.5,
+      "tol_abs": null,
+      "upper_bound": false,
+      "error_abs": 0.0006680708389570356,
+      "error_pct": 0.004760414440624166,
+      "passed": true
+    },
+    {
+      "name": "f(TE011)",
+      "unit": "GHz",
+      "openems": 15.578100951823398,
+      "reference": 15.576685360413224,
+      "reference_source": "analytic",
+      "tol_pct": 0.5,
+      "tol_abs": null,
+      "upper_bound": false,
+      "error_abs": 0.0014155914101738887,
+      "error_pct": 0.009087886013101926,
+      "passed": true
+    },
+    {
+      "name": "f(TM110)",
+      "unit": "GHz",
+      "openems": 16.14653370980706,
+      "reference": 16.14508578790973,
+      "reference_source": "analytic",
+      "tol_pct": 0.5,
+      "tol_abs": null,
+      "upper_bound": false,
+      "error_abs": 0.0014479218973306729,
+      "error_pct": 0.008968189555331761,
+      "passed": true
+    },
+    {
+      "name": "f(TE103)",
+      "unit": "GHz",
+      "openems": 16.362622094481623,
+      "reference": 16.361078344578505,
+      "reference_source": "analytic",
+      "tol_pct": 0.5,
+      "tol_abs": null,
+      "upper_bound": false,
+      "error_abs": 0.0015437499031172308,
+      "error_pct": 0.009435502175373275,
+      "passed": true
+    },
+    {
+      "name": "f(TE202)",
+      "unit": "GHz",
+      "openems": 16.489128038100368,
+      "reference": 16.487754431069085,
+      "reference_source": "analytic",
+      "tol_pct": 0.5,
+      "tol_abs": null,
+      "upper_bound": false,
+      "error_abs": 0.0013736070312830861,
+      "error_pct": 0.00833107405272059,
+      "passed": true
+    },
+    {
+      "name": "f(TE111/TM111)",
+      "unit": "GHz",
+      "openems": 16.90194773357345,
+      "reference": 16.90056853276075,
+      "reference_source": "analytic",
+      "tol_pct": 0.5,
+      "tol_abs": null,
+      "upper_bound": false,
+      "error_abs": 0.0013792008126998212,
+      "error_pct": 0.008160677021168383,
+      "passed": true
+    }
+  ],
+  "runtime_s": 1.4698765277862549,
+  "notes": [
+    "2,558 tetrahedra (h = 2.5 mm); eigenfrequencies found (GHz): 8.2439, 11.9525, 14.0345, 15.5781, 16.1465, 16.3626, 16.4891, 16.9019, 16.9025, 17.8224",
+    "no HFSS reference supplied (references/hfss/elmer_cavity_eigenmode.csv); compared to analytic only"
+  ],
+  "solver": "Elmer",
+  "passed": true
+}

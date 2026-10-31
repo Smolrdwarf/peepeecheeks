@@ -4,3 +4,5 @@ numpy
 scipy
 matplotlib
 h5py
+gmsh      # tetrahedral meshing for the Elmer (FEM) cases
+meshio    # reads Elmer VTU output
