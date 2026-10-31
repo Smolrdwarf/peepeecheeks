@@ -1342,7 +1342,11 @@ def main():
     win = MainWindow()
     win.show()
     if len(sys.argv) > 1 and os.path.exists(sys.argv[1]):
-        win.load_project(Project.load(sys.argv[1]), os.path.abspath(sys.argv[1]))
+        arg = os.path.abspath(sys.argv[1])
+        if arg.lower().endswith((".aedt", ".aedtz")):   # run.py design.aedt -> import it (first design)
+            win.import_aedt_file(arg)
+        else:
+            win.load_project(Project.load(arg), arg)
     return app.exec()
 
 
