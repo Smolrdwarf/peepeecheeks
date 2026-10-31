@@ -14,6 +14,11 @@ written from scratch in PySide6, PyVista/VTK and matplotlib. No Ansys code or fi
   undo/redo; duplicate/delete
 - **Lumped ports**, **region boundaries** per face (PML / Mur / PEC / PMC), material library
   (FR4, Rogers, PTFE, alumina, …) and user materials
+- **Adaptive passes** like HFSS (*Maximum Number of Passes*, *Maximum Delta S*, *Minimum Converged Passes*): the
+  FDTD grid is rebuilt finer each pass until the S-parameters stop changing. Off by default; turned on for imported
+  HFSS designs, using the HFSS project's own settings
+- **Conductor-edge mesh refinement** (on by default), where FDTD loses accuracy first. See
+  [Validation](#validation-so-far)
 - **Validation Check** with a mesh and memory estimate, **Analyze All** (F5) running in a subprocess
   with live progress and **Abort**
 - **Results**: S-parameter plot with an m1 marker, Smith chart, input impedance,
@@ -37,6 +42,7 @@ translated, approximated or skipped.
 | Lumped Port | Lumped port spanning the port sheet along its integration line |
 | Wave Port | **Approximation:** a lumped port along the integration line, narrowed to the signal conductor |
 | Driven setup and sweep | Sweep range and point count. The solution frequency is used for the far field |
+| Adaptive settings (`MaximumPasses`, `MaxDeltaS`, `MinimumConvergedPasses`) | Adaptive passes with the same limits. `PercentRefinement` has no FDTD equivalent: each pass re-meshes the whole grid 1.25× finer |
 
 **Results → Load Reference Results** loads S-parameters exported from HFSS: Touchstone `.sNp`, or a report
 exported as `.csv` (e.g. `dB(S(1,1))`). They're overlaid as dashed curves on the S-parameter plot and Smith chart.
@@ -47,8 +53,8 @@ Tested against 70 real HFSS designs. All import without crashing. The only opera
 some fillets/chamfers on edges whose IDs can't be matched; the corner is left sharp, and the import report says so.
 
 Things to keep in mind when comparing:
-- HFSS solves with adaptive FEM; FieldForge uses FDTD on a fixed grid (20 cells/λ by default, adjustable in the
-  setup). Curved and diagonal edges are staircased.
+- HFSS solves with adaptive FEM. FieldForge uses FDTD, starting at 20 cells/λ (adjustable in the setup); with
+  adaptive passes it refines the whole grid uniformly instead of locally. Curved and diagonal edges are staircased.
 - Conductor and surface losses are not modelled; dielectric loss is.
 - FieldForge excites one port per run, so you get the first column of the S-matrix.
 
@@ -83,7 +89,8 @@ The solver can also be run headless: `python -m fieldforge.solver project.ffproj
 | File | Purpose |
 |---|---|
 | `fieldforge/model.py` | Project data model, safe expression evaluator, material library, JSON save/load |
-| `fieldforge/solver.py` | Project → CSXCAD/openEMS translation, auto-mesher, port/far-field post-processing |
+| `fieldforge/solver.py` | Project → CSXCAD/openEMS translation, auto-mesher, adaptive pass loop, port/far-field post-processing |
+| `fieldforge/adaptive.py` | HFSS-style adaptive convergence loop (max delta-S between passes), solver-agnostic |
 | `fieldforge/viewer.py` | PyVista 3D modeler widget and picking |
 | `fieldforge/plots.py` | Result viewers |
 | `fieldforge/gui.py` | Main window, tree, properties, menus, solver process control |
@@ -94,6 +101,9 @@ The solver can also be run headless: `python -m fieldforge.solver project.ffproj
 | `fieldforge/aedt/importer.py` | AEDT design → FieldForge project (materials, boundaries, ports, setup) and the import report |
 | `fieldforge/cad.py` | Cached replay/tessellation for imported objects (rebuilt when variables change) |
 | `fieldforge/reference.py` | Touchstone / HFSS CSV reader and comparison metrics |
+| `tests/test_adaptive_import.py` | HFSS adaptive settings → FieldForge mapping, old project files still load (no solver needed) |
+| `tests/microstrip_mesh_check.py` | eps_eff of a 50 Ω microstrip with each mesh option (needs openEMS, ~5 min) |
+| `tests/patch_mesh_check.py` | Patch example resonance with edge refinement off/on/adaptive (needs openEMS, ~10 min) |
 
 ## Validation so far
 
@@ -111,9 +121,35 @@ macOS (M1, openEMS built from source at `d686f1d`):
 
 The patch efficiency differs from the Windows run above (93 %); the cause has not been established.
 
+### Mesh options (validation-suite microstrip)
+
+50 Ω microstrip, 1.1 mm wide on 0.508 mm RO4003C (εr 3.55 from the material library), lumped ports at both ends.
+eps_eff comes from the S21 phase difference between a 30 mm and a 50 mm line. Reference: Hammerstad-Jensen, 2.779.
+Source: `tests/microstrip_mesh_check.py`.
+
+| Mesh | eps_eff error | Cells (50 mm line) |
+|---|---|---|
+| Fixed 20 cells/λ, no edge refinement (previous behaviour) | +7.0 % | 19k |
+| Edge refinement (new default) | +0.95 % | 40k |
+| Edge refinement + adaptive, converged in 2-3 passes | +0.6 % | 105k |
+
+At 6 GHz the wavelength-based cell (1.36 mm) is wider than the 1.1 mm strip, so the edge cells are sized from the
+conductor's own width (width/10) as well as the wavelength (cell/4).
+
+### Solver fixes from this work
+
+- **Sheet ports:** a lumped port with width (all imported HFSS lumped ports and approximated wave ports) now gets a
+  mesh line through its centre. Without it, openEMS's voltage probe could fall between two lines
+  ("only a 1D/line integration is allowed") and the run produced NaN S-parameters.
+- **Mesh-line merging:** merging no longer averages two fixed planes together. Before, a thin substrate under a coarse
+  grid lost both its ground plane (z=0) and its top surface; they were merged into a single line halfway between.
+  The merge tolerance is now also capped at half the thin-layer and edge cell sizes.
+
 ## Known limitations / next steps
 
-- FDTD is a staircased Cartesian mesh: curved surfaces are approximated, and thin features need a finer mesh
+- FDTD is a staircased Cartesian mesh: curved surfaces are approximated, and thin features need a finer mesh.
+  Adaptive passes refine globally, so each pass costs roughly 2× the previous one
+- No convergence plot yet: adaptive pass history is saved in `results.npz` (`adaptive_history`) and printed to the log
 - Only lumped ports natively. Imported wave ports are approximated. Only one port is excited per run, so you get one S-matrix column
 - No boolean operations (unite/subtract), rotation or interactive mouse drawing yet
 - No parametric sweep or optimizer yet (design variables are already in place for it)

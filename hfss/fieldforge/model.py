@@ -219,6 +219,15 @@ class Setup:
     farfield: bool = True
     farfield_freq: str = "2"    # GHz
     farfield_step_deg: float = 3.0
+    # Mesh refinement around conductor-sheet edges (where FDTD accuracy is lost first, e.g. microstrip)
+    edge_refinement: bool = True
+    # HFSS-style adaptive passes: re-mesh finer until max|S_n - S_n-1| < max_delta_s
+    adaptive: bool = False
+    max_passes: int = 6               # HFSS "Maximum Number of Passes"
+    max_delta_s: float = 0.02         # HFSS "Maximum Delta S"
+    min_converged_passes: int = 1     # HFSS "Minimum Converged Passes"
+    refine_factor: float = 1.25       # mesh density multiplier per pass (linear)
+    max_cells: int = 5_000_000        # stop refining rather than exceed this
 
 
 @dataclass

@@ -268,9 +268,23 @@ class _Importer:
         s.n_points = max(npts, 101) if npts else 401
         s.farfield_freq = _fmt(min(max(f0, lo), hi))
         s.farfield = True
+        # HFSS adaptive meshing -> FieldForge adaptive passes (global FDTD re-mesh, same delta-S criterion).
+        # PercentRefinement (tetrahedra added per pass) has no FDTD equivalent; refine_factor keeps its default.
+        def num(key, conv, default):
+            try:
+                return conv(float(drv.get(key)))
+            except (TypeError, ValueError):
+                return default
+        s.adaptive = True
+        s.max_passes = num("MaximumPasses", int, s.max_passes)
+        s.max_delta_s = num("MaxDeltaS", float, s.max_delta_s)
+        s.min_converged_passes = num("MinimumConvergedPasses", int, s.min_converged_passes)
         self.report.setup = (f"{drv.name}: sweep {lo:g}-{hi:g} GHz ({s.n_points} points), solution frequency "
-                             f"{f0:g} GHz (used for the far field). HFSS adaptive meshing settings do not apply "
-                             f"to FDTD; FieldForge uses {s.cells_per_wavelength} cells per wavelength.")
+                             f"{f0:g} GHz (used for the far field). Adaptive meshing: up to {s.max_passes} passes "
+                             f"until max delta S < {s.max_delta_s:g} ({s.min_converged_passes} converged pass(es)), "
+                             f"as in the HFSS setup; FieldForge re-meshes the whole FDTD grid "
+                             f"{s.refine_factor:g}x finer per pass, starting at {s.cells_per_wavelength} cells per "
+                             f"wavelength.")
         return s
 
     def _freq(self, raw) -> float | None:

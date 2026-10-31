@@ -89,6 +89,9 @@ Peak memory is ~1-2 GB (sphere case, 2.9 M cells).
 
 ## Adaptive mesh convergence (`adaptive.py`)
 
+The loop now lives in FieldForge (`hfss/fieldforge/adaptive.py`), which uses it for its adaptive passes;
+`adaptive.py` here re-exports it, so this folder needs the `hfss/` folder next to it.
+
 HFSS refines its mesh until S-parameters change by less than *Maximum Delta S* between passes.
 openEMS has no adaptive meshing, so `adaptive.py` does the same from the outside:
 
@@ -129,7 +132,7 @@ using the same tolerance. Use the geometry and settings documented at the top of
 ## Layout
 
 ```
-adaptive.py        HFSS-style adaptive mesh loop (max delta-S convergence)
+adaptive.py        re-exports hfss/fieldforge/adaptive.py (single implementation, also used by FieldForge)
 tests_adaptive.py  solver-free unit tests for adaptive.py
 common.py          Metric/CaseResult, tolerance checks, HFSS CSV loader, paths
 run_all.py         runs cases, writes results/SUMMARY.md, exit code 1 on any failure
