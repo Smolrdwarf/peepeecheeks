@@ -30,6 +30,7 @@ from .viewer import ModelerView
 APP_NAME = "FieldForge"
 FILE_FILTER = "FieldForge project (*.ffproj);;JSON (*.json)"
 HFSS_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+IS_MAC = sys.platform == "darwin"
 
 ROLE = Qt.UserRole
 
@@ -140,7 +141,7 @@ class MainWindow(QMainWindow):
         self.log = QPlainTextEdit()
         self.log.setReadOnly(True)
         self.log.setMaximumBlockCount(4000)
-        self.log.setStyleSheet("font-family: Consolas, monospace; font-size: 9pt;")
+        self.log.setStyleSheet(f"font-family: {'Menlo' if IS_MAC else 'Consolas'}, monospace; font-size: 9pt;")
         lay.addWidget(self.log)
         dp = QDockWidget("Progress", self)
         dp.setObjectName("progress")
@@ -167,10 +168,12 @@ class MainWindow(QMainWindow):
         self.a_open = A("&Open...", self.open_project, "Ctrl+O", st.standardIcon(QStyle.SP_DialogOpenButton))
         self.a_save = A("&Save", self.save_project, "Ctrl+S", st.standardIcon(QStyle.SP_DialogSaveButton))
         self.a_saveas = A("Save &As...", self.save_project_as, "Ctrl+Shift+S")
-        self.a_exit = A("E&xit", self.close, "Alt+F4")
+        self.a_exit = A("E&xit", self.close, QKeySequence.Quit if IS_MAC else "Alt+F4")
         self.a_undo = A("&Undo", self.undo, "Ctrl+Z", st.standardIcon(QStyle.SP_ArrowBack))
-        self.a_redo = A("&Redo", self.redo, "Ctrl+Y", st.standardIcon(QStyle.SP_ArrowForward))
-        self.a_delete = A("&Delete", self.delete_selected, "Delete", st.standardIcon(QStyle.SP_TrashIcon))
+        self.a_redo = A("&Redo", self.redo, QKeySequence.Redo, st.standardIcon(QStyle.SP_ArrowForward))
+        # The key labelled "delete" on a Mac keyboard is Backspace to Qt.
+        self.a_delete = A("&Delete", self.delete_selected, "Backspace" if IS_MAC else "Delete",
+                          st.standardIcon(QStyle.SP_TrashIcon))
         self.a_dup = A("D&uplicate", self.duplicate_selected, "Ctrl+D")
         self.a_box = A("&Box", lambda: self.draw("box"), None, "box", "Draw a box")
         self.a_cyl = A("&Cylinder", lambda: self.draw("cylinder"), None, "cylinder", "Draw a cylinder")
