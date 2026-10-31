@@ -1083,7 +1083,7 @@ class MainWindow(QMainWindow):
             elif line.startswith("[FieldForge]"):
                 msg = line[len("[FieldForge]"):].strip()
                 self.progress_label.setText(f"{self.project.setup.name}: {msg}")
-                self.message("error" if msg.startswith("ERROR") else "info", msg)
+                self.message("error" if msg.startswith("ERROR") else "warn" if msg.startswith("WARNING") else "info", msg)
             self.log.appendPlainText(line)
 
     def _on_solver_finished(self, code, _status):

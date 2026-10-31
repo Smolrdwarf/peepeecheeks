@@ -412,6 +412,11 @@ def solve(project_file: str, out_dir: str) -> str:
     inc = ports[exc].uf_inc
     # Column `exc` of the scattering matrix: outgoing wave at every port / incident wave at the excited one.
     S = np.array([p.uf_ref / inc for p in ports])
+    if np.all(np.abs(1 - np.abs(S[exc])) < 1e-6):
+        # no current flowed: the result is the trivial open circuit, not a measurement
+        print(f"[FieldForge] WARNING: port '{project.ports[exc].name}' carried no current (|S11| = 1 at every "
+              f"frequency). The port is not driving the structure; check that its terminals and mesh lines "
+              f"are placed correctly. These results are not meaningful.", flush=True)
     Zin = np.array([p.uf_tot / p.if_tot for p in ports])
     P_acc = np.array([np.real(p.P_acc) for p in ports])
 
@@ -426,7 +431,10 @@ def solve(project_file: str, out_dir: str) -> str:
         theta = np.arange(0.0, 180.0 + step / 2, step)
         phi = np.arange(0.0, 360.0 + step / 2, step)
         print(f"[FieldForge] Computing far field at {ff_f / 1e9:g} GHz...", flush=True)
-        res = nf2ff.CalcNF2FF(sim_path, ff_f, theta, phi, center=[0, 0, 0], read_cached=False)
+        # the phase centre must lie inside the near-field recording box: use the model centre
+        mlo, mhi = model_bounds(project, project.resolved_variables())
+        centre = (0.5 * (mlo + mhi) * project.unit_scale()).tolist()
+        res = nf2ff.CalcNF2FF(sim_path, ff_f, theta, phi, center=centre, read_cached=False)
         e_norm = res.E_norm[0]
         dmax = float(np.real(res.Dmax[0]))
         D = (e_norm / e_norm.max()) ** 2 * dmax

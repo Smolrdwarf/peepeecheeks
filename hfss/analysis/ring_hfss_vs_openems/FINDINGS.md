@@ -116,21 +116,72 @@ The full numbers for every run are in `variants_table.md` and `runs/*/meta.json`
 
 ## 5. Consequences for the tools
 
-**Update, same day: items 1 and 2 are now implemented in FieldForge's openEMS path** (as a backup to the
-Elmer-side fix):
-- **Topology guard.** `solver.small_gaps()` finds conductor/port pairs closer than the line-merge tolerance
-  that don't touch. Bounding boxes are only a coarse filter; each candidate is confirmed with the exact
-  OpenCascade distance. One facing mesh line on each side of the gap is protected, along the axis with
-  the largest separation, so merging can no longer close it.
-- **Port connectivity check.** `solver.port_connectivity()` measures each port terminal against the real
-  conductor geometry. A floating terminal is reported in the import report, in Validation Check and in
-  the solver log.
-- **Result on the ring,** through the normal solver at the default 20 cells/λ: the 52 µm port–ground gap
-  is kept (400k cells, smallest cell 43 µm, about 5 min instead of 30 s). The interior distance to HFSS
-  drops from **1.667 to 0.729**. That matches the analysis harness (0.760) and leaves the same unconverged
-  residual described in §4.
-- **Efficiency readout.** Radiation efficiency is now shown as "n/a" when the port accepts less than 1 % of
-  the incident power. The floating port had produced "848 %" from dividing noise by almost nothing.
+**Update, same day: items 1 and 2 are implemented in FieldForge's openEMS path** (as a backup to the
+Elmer-side fix).
+
+> **Correction.** An earlier version of this section claimed the fix cut the interior distance to HFSS
+> from 1.667 to 0.729. **That was wrong.** The run was broken: the port carried no current, and
+> |S11| = 1.000 at every frequency. 0.729 is simply the distance from HFSS's points to the trivial
+> open-circuit point S11 = +1. A ring simulation run in the GUI showed the same flat 0 dB.
+
+**What was broken, and how it was found.** Short diagnostic runs (`tools/port_diag.py`) tested
+whether port current flows:
+
+| run | port mesh line | port current |
+|---|---|---|
+| fix as first pushed | x = 87.457**3001**, 0.1 µm inside the antenna's edge | 4e-16 (dead) |
+| same, line moved 0.2 µm | x = 87.457**2999**, outside the edge | flows |
+| old merging (gap closed) | exactly 87.4573 | flows |
+
+The 0.1 µm offsets were not real geometry. OpenCascade's `BRepBndLib.Add` pads every bounding box by
+the shape tolerance (1e-7). The protected mesh lines, and the importer's port corners, inherited that
+padding. A mesh line a hair inside a metal sheet's edge disables the openEMS lumped port.
+
+**What is in FieldForge now:**
+- **Topology guard.** `solver.small_gaps()` finds conductor/port pairs closer than the line-merge
+  tolerance that don't touch (bounding-box filter, confirmed with the exact OpenCascade distance). One
+  facing mesh line on each side of the gap is protected, along the axis with the largest separation.
+- **Exact bounds.** `geometry.bounds()` uses `BRepBndLib.AddOptimal`, with no tolerance padding.
+- **Port connectivity check.** `solver.port_connectivity()` finds floating port terminals. They are
+  reported at import, in Validation Check and in the solver log.
+- **Dead-port check.** If the excited port's |S11| equals 1 to within 1e-6 at every frequency, the
+  solver warns that no current flowed and the results are not meaningful.
+- **Far field.**
+  - The NF2FF phase centre is now the model centre. It had been the coordinate origin, about 100 mm
+    outside the recording box, which openEMS doesn't allow and which distorted the pattern.
+  - The 3D pattern is drawn around the model.
+  - Efficiency is shown as n/a when the port accepts less than 1 % of the power.
+
+**Verified result on the ring** (normal solver, default 20 cells/λ, 400k cells, 43 µm smallest cell,
+about 5 min):
+- The port now works: peak port current 1.3e-5, |S11| between 0.715 and 0.998, 13.8 % of the power
+  accepted at 2.87 GHz, peak directivity 5.2 dBi, efficiency 6.6 %.
+- **1.6–2.5 GHz: agrees with HFSS** (|ΔS11| 0.25–0.34). FieldForge now reproduces HFSS's near-open,
+  capacitive port, which supports the port-gap attribution.
+- **2.87–4.3 GHz: still disagrees** (|ΔS11| 0.84–1.56). FieldForge has a resonance at 3.33 GHz
+  (−2.9 dB) that HFSS's points don't show. This resonance is not mesh-converged: the same geometry at
+  30 cells/λ put it at 2.66 GHz (§4). HFSS's 10 points, 0.36 GHz apart, on an unconverged sweep could
+  miss it entirely.
+- **The single-number metric can't show this.** The interior distance (0.740) is no better than the
+  trivial S11 = +1 (0.729), because it is dominated by the upper band. Compare point by point instead
+  (table below).
+
+| f (GHz) | HFSS S11 | FieldForge (fixed) S11 | \|ΔS11\| |
+|---|---|---|---|
+| 1.614 | +0.938−0.271j | +0.840−0.523j | 0.27 |
+| 1.794 | +0.907−0.389j | +0.782−0.602j | 0.25 |
+| 2.152 | +0.835−0.530j | +0.652−0.733j | 0.27 |
+| 2.511 | +0.701−0.669j | +0.428−0.869j | 0.34 |
+| 2.870 | +0.742−0.615j | −0.038−0.928j | 0.84 |
+| 3.229 | +0.607−0.770j | −0.760−0.012j | 1.56 |
+| 3.587 | +0.432−0.872j | +0.724+0.457j | 1.36 |
+| 3.946 | +0.100−0.925j | +0.899−0.282j | 1.03 |
+
+**Still needed before the two can agree:**
+- A mesh-converged FieldForge run: 30/40 cells/λ with the gap resolved (25–60 min each), or the
+  adaptive loop from `openems-validation`.
+- A converged HFSS run: ΔS < 0.02, a discrete sweep around 2.5–4 GHz, and ideally the port-touching-
+  ground control from §3.
 
 Original list:
 

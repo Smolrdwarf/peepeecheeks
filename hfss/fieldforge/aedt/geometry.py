@@ -150,7 +150,9 @@ def transformed(shape, trsf: gp_Trsf, copy=True):
 
 def bounds(shape) -> tuple[np.ndarray, np.ndarray]:
     box = Bnd_Box()
-    BRepBndLib.Add_s(shape, box, False)
+    # exact box: Add_s pads it by the shape tolerance (1e-7), which puts mesh lines a hair inside
+    # neighbouring conductors and can disable a lumped port
+    BRepBndLib.AddOptimal_s(shape, box, False, False)
     if box.IsVoid():
         return np.zeros(3), np.zeros(3)
     lo, hi = box.CornerMin(), box.CornerMax()
