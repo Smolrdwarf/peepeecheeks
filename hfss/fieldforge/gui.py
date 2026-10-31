@@ -1009,6 +1009,12 @@ class MainWindow(QMainWindow):
                     ok = False
             if ok:
                 self.message("info", f"  Excitations: {len(p.ports)} port(s) OK")
+                try:
+                    from .solver import connectivity_warnings
+                    for msg in connectivity_warnings(p, variables):
+                        self.message("warn", f"  {msg}")
+                except Exception as exc:  # noqa: BLE001
+                    self.message("warn", f"  Port connectivity could not be checked: {exc}")
         s = p.setup
         try:
             if not 0 <= float(s.f_start) < float(s.f_stop):
@@ -1026,6 +1032,11 @@ class MainWindow(QMainWindow):
                 lo, hi = region_bounds(p, variables)
                 mesh, max_res = build_mesh(p, variables, lo, hi)
                 cells = int(np.prod([len(m) for m in mesh]))
+                from .solver import small_gaps
+                for g in small_gaps(p, variables, max_res / 10):
+                    self.message("info", f"  Mesh: keeping a {g['distance'] * 1000:.1f} um gap between "
+                                         f"'{g['a']}' and '{g['b']}' open (smallest cell "
+                                         f"{min(np.diff(m).min() for m in mesh):.3g} {p.units}; longer run time)")
                 self.message("info", f"  Mesh: {' x '.join(str(len(m)) for m in mesh)} = {cells:,} cells, "
                                      f"max cell {max_res:.3g} {p.units}, ~{cells * 200 / 1e6:.0f} MB")
             except Exception as exc:  # noqa: BLE001
@@ -1086,7 +1097,7 @@ class MainWindow(QMainWindow):
             elif line.startswith("[FieldForge]"):
                 msg = line[len("[FieldForge]"):].strip()
                 self.progress_label.setText(f"{self.project.setup.name}: {msg}")
-                self.message("error" if msg.startswith("ERROR") else "info", msg)
+                self.message("error" if msg.startswith("ERROR") else "warn" if msg.startswith("WARNING") else "info", msg)
             self.log.appendPlainText(line)
 
     def _on_solver_finished(self, code, _status):

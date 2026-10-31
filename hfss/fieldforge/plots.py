@@ -252,9 +252,7 @@ class FarField3D(QWidget):
                 from .solver import model_bounds
                 lo, hi = model_bounds(project, variables)
                 scale = float(np.linalg.norm(hi - lo)) * 0.9
-                # far-field directions are position independent; draw the pattern around the model
-                # (imported designs are often far from the origin, e.g. ~150 mm for ring_antenna_v1)
-                centre = 0.5 * (np.asarray(lo, float) + np.asarray(hi, float))
+                centre = 0.5 * (lo + hi)   # draw the pattern around the model, not the coordinate origin
             except Exception:  # noqa: BLE001
                 variables = None
         x = centre[0] + scale * r * np.sin(th) * np.cos(ph)
@@ -275,10 +273,15 @@ class FarField3D(QWidget):
                                    opacity=0.5)
                     except Exception:  # noqa: BLE001
                         pass
-        eff = 100 * res.ff_Prad / res.ff_Pin if res.ff_Pin > 0 else float("nan")
+        # radiated/accepted is noise when the port accepts almost no power (e.g. a floating port)
+        accepted = 1 - np.interp(res.ff_freq, res.freq, np.abs(res.S[res.excited])) ** 2
+        if accepted < 0.01 or res.ff_Pin <= 0:
+            eff_txt = f"Radiation efficiency: n/a (port accepts {100 * accepted:.2f} % of incident power)"
+        else:
+            eff_txt = f"Radiation efficiency: {100 * res.ff_Prad / res.ff_Pin:.1f} %"
         p.add_text(f"3D Radiation Pattern @ {res.ff_freq / 1e9:g} GHz\n"
                    f"Peak directivity: {10 * np.log10(res.ff_Dmax):.2f} dBi\n"
-                   f"Radiation efficiency: {eff:.1f} %",
+                   f"{eff_txt}",
                    position="upper_left", font_size=8, color="black")
         p.view_isometric()
         p.reset_camera()

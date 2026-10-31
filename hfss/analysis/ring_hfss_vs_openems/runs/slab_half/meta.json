@@ -1,0 +1,14 @@
+{
+ "name": "slab_half",
+ "knobs": {
+  "slab": "0.1"
+ },
+ "cells": 364182,
+ "min_cell_mm": 0.30000010000000543,
+ "mesh_lines": [
+  91,
+  69,
+  58
+ ],
+ "runtime_s": 29.6
+}

@@ -17,6 +17,8 @@ from .model import AXES, Project, evaluate
 
 C0 = 299792458.0
 EPS0 = 8.8541878128e-12
+# Below this fraction of accepted power (1 - |S11|^2) radiated/accepted is dominated by numerical noise
+MIN_ACCEPTED = 0.01
 
 
 def openems_install_path() -> str:
@@ -71,28 +73,40 @@ def region_bounds(project: Project, variables) -> tuple[np.ndarray, np.ndarray]:
     return lo - pad, hi + pad
 
 
-def _merge_close(lines, hard, tol):
-    """Collapse mesh lines closer than `tol`; a cluster keeps its 'hard' line (sheet/port plane) if any."""
+def _merge_close(lines, hard, tol, protected=()):
+    """Collapse mesh lines closer than `tol`.
+
+    A cluster keeps its 'protected' line (one face of a small gap between two conductors), otherwise its
+    'hard' line (sheet/port plane), otherwise its midpoint. Two protected lines never share a cluster,
+    so a gap narrower than `tol` keeps a mesh line on each side and stays open.
+    """
     lines = np.unique(np.round(np.asarray(lines, dtype=float), 9))
     hard = np.unique(np.round(np.asarray(hard, dtype=float), 9))
+    prot = np.unique(np.round(np.asarray(protected, dtype=float), 9))
+
+    def is_prot(x):
+        return len(prot) and np.any(np.abs(prot - x) < 1e-9)
+
     out, cluster = [], [lines[0]] if len(lines) else []
     for x in lines[1:]:
-        if x - cluster[-1] < tol:
+        if x - cluster[-1] < tol and not (is_prot(x) and any(is_prot(c) for c in cluster)):
             cluster.append(x)
             continue
-        out += _representative(cluster, hard, tol)
+        out += _representative(cluster, hard, prot)
         cluster = [x]
     if cluster:
-        out += _representative(cluster, hard, tol)
+        out += _representative(cluster, hard, prot)
     return np.array(out)
 
 
-def _representative(cluster, hard, tol):
-    """Lines to keep for one cluster. Hard lines are distinct planes (sheets, port ends, region faces)
-    that must all survive; averaging two of them would move both off their geometry."""
-    h = [float(x) for x in cluster if np.any(np.abs(hard - x) < 1e-9)]
-    if h:
-        return h
+def _representative(cluster, hard, prot=()):
+    """Lines to keep for one cluster: its protected lines (gap faces) and hard lines (sheet/port planes),
+    all of them, since averaging two distinct planes would move both off their geometry (a thin
+    substrate under a coarse grid used to lose its ground and top planes this way); else the midpoint."""
+    keep = sorted({float(x) for x in cluster
+                   for group in (prot, hard) if len(group) and np.any(np.abs(group - x) < 1e-9)})
+    if keep:
+        return keep
     return [float(cluster[0] if len(cluster) == 1 else np.mean([cluster[0], cluster[-1]]))]
 
 
@@ -111,13 +125,146 @@ def _collapse(values, feat):
     return out
 
 
-def _smooth(lines, max_res, hard=(), tol=0.0):
+def _smooth(lines, max_res, hard=(), tol=0.0, protected=()):
     """Smooth mesh lines so no cell exceeds max_res and neighbours grow by <= 1.4x."""
     from CSXCAD.SmoothMeshLines import SmoothMeshLines
-    lines = np.unique(np.round(np.asarray(lines, dtype=float), 9))
+    lines = np.unique(np.round(np.asarray(list(lines) + list(protected), dtype=float), 9))
     if tol > 0:
-        lines = _merge_close(lines, list(hard) + [lines[0], lines[-1]], tol)
+        lines = _merge_close(lines, list(hard) + [lines[0], lines[-1]], tol, protected)
     return SmoothMeshLines(lines, max_res, 1.4)
+
+
+# --------------------------------------------------------------------------- topology guards
+
+def _conductor_boxes(project: Project, variables):
+    """[(label, lo, hi)] for every conductor and every port terminal region."""
+    out = []
+    for obj in project.objects:
+        if not project.material(obj.material).conductor:
+            continue
+        lo, hi = obj.bounds(variables, project)
+        out.append((obj.name, np.array(lo, float), np.array(hi, float)))
+    for port in project.ports:
+        a, b = port.corners(variables)
+        out.append((f"port {port.name}", np.minimum(a, b), np.maximum(a, b)))
+    return out
+
+
+def small_gaps(project: Project, variables, tol: float) -> list[dict]:
+    """Pairs of conductors / port terminals that are closer than `tol` without touching.
+
+    Merging mesh lines across such a gap would short it (or, for a port, connect a terminal that is
+    floating in the source model). For each pair the axis with the largest separation is reported; one
+    protected line on each side of the gap along that axis is enough to keep it open.
+    """
+    boxes = _conductor_boxes(project, variables)
+    out = []
+    for i in range(len(boxes)):
+        for j in range(i + 1, len(boxes)):
+            (na, la, ha), (nb, lb, hb) = boxes[i], boxes[j]
+            if na.startswith("port ") and nb.startswith("port "):
+                continue
+            gap = np.maximum(np.maximum(lb - ha, la - hb), 0.0)
+            d = float(np.linalg.norm(gap))
+            if d >= tol:
+                continue
+            # bounding boxes are only a coarse filter; confirm with the exact distance between the shapes
+            exact = _exact_distance(project, variables, na, nb)
+            if exact is not None:
+                d = exact
+            if not 0 < d < tol:
+                continue
+            k = int(np.argmax(gap))
+            if lb[k] - ha[k] > 0:
+                faces = (float(ha[k]), float(lb[k]))
+            else:
+                faces = (float(hb[k]), float(la[k]))
+            out.append({"a": na, "b": nb, "axis": k, "faces": faces, "distance": d})
+    return out
+
+
+def _occ_shape(project: Project, variables, label):
+    """OpenCascade shape for an object or a port region (native primitives use their box)."""
+    from OCP.BRepPrimAPI import BRepPrimAPI_MakeBox
+    from OCP.gp import gp_Pnt
+    if label.startswith("port "):
+        port = next(q for q in project.ports if q.name == label[5:])
+        a, b = (np.array(v, float) for v in port.corners(variables))
+        lo, hi = np.minimum(a, b), np.maximum(a, b)
+    else:
+        obj = next(o for o in project.objects if o.name == label)
+        if obj.kind == "cad":
+            from . import cad
+            return cad.shape(project, obj)
+        lo, hi = (np.array(v, float) for v in obj.bounds(variables, project))
+    ext = hi - lo
+    if np.count_nonzero(ext > 1e-12) == 3:
+        return BRepPrimAPI_MakeBox(gp_Pnt(*lo), gp_Pnt(*hi)).Shape()
+    from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeEdge, BRepBuilderAPI_MakePolygon, BRepBuilderAPI_MakeFace
+    flat = [i for i in range(3) if ext[i] <= 1e-12]
+    if len(flat) == 1:
+        u, w = [i for i in range(3) if i != flat[0]]
+        c = [lo.copy(), lo.copy(), lo.copy(), lo.copy()]
+        c[1][u] = hi[u]
+        c[2][u], c[2][w] = hi[u], hi[w]
+        c[3][w] = hi[w]
+        poly = BRepBuilderAPI_MakePolygon(*[gp_Pnt(*q) for q in c], True)
+        return BRepBuilderAPI_MakeFace(poly.Wire(), True).Face()
+    return BRepBuilderAPI_MakeEdge(gp_Pnt(*lo), gp_Pnt(*hi)).Edge()
+
+
+def _exact_distance(project: Project, variables, la, lb):
+    try:
+        from .aedt.geometry import dist
+        return float(dist(_occ_shape(project, variables, la), _occ_shape(project, variables, lb)))
+    except Exception:  # noqa: BLE001 - fall back to the bounding-box estimate
+        return None
+
+
+def port_connectivity(project: Project, variables) -> list[dict]:
+    """Distance from each port terminal to the nearest conductor (0 = connected).
+
+    Uses the exact B-rep distance for imported objects and the bounding box for native primitives.
+    """
+    conductors = [o for o in project.objects if project.material(o.material).conductor]
+    lo_m, hi_m = model_bounds(project, variables)
+    touch = 1e-6 * float(np.linalg.norm(hi_m - lo_m)) + 1e-9
+    out = []
+    for port in project.ports:
+        a, b = (np.array(v, float) for v in port.corners(variables))
+        lo, hi = np.minimum(a, b), np.maximum(a, b)
+        ax = AXES.index(port.axis)
+        centre = 0.5 * (lo + hi)
+        for label, coord in (("start", lo[ax]), ("end", hi[ax])):
+            pt = centre.copy()
+            pt[ax] = coord
+            best, best_d = None, float("inf")
+            for obj in conductors:
+                d = _point_distance(project, obj, pt, variables)
+                if d < best_d:
+                    best, best_d = obj.name, d
+            out.append({"port": port.name, "terminal": label, "point": pt.tolist(), "nearest": best,
+                        "distance": best_d, "connected": best_d <= touch})
+    return out
+
+
+def _point_distance(project, obj, pt, variables) -> float:
+    if obj.kind == "cad":
+        from . import cad
+        from .aedt.geometry import dist, vertex
+        return dist(vertex(pt), cad.shape(project, obj))
+    lo, hi = (np.array(v, float) for v in obj.bounds(variables, project))
+    return float(np.linalg.norm(np.maximum(np.maximum(lo - pt, pt - hi), 0.0)))
+
+
+def connectivity_warnings(project: Project, variables) -> list[str]:
+    msgs = []
+    for c in port_connectivity(project, variables):
+        if not c["connected"]:
+            msgs.append(f"Port '{c['port']}' {c['terminal']} terminal does not touch a conductor: nearest is "
+                        f"'{c['nearest']}' at {c['distance'] * 1000:.1f} um ({project.units} model). The port "
+                        f"couples only capacitively; check this matches the source design")
+    return msgs
 
 
 def build_mesh(project: Project, variables, rlo, rhi, scale: float = 1.0) -> list[np.ndarray]:
@@ -145,12 +292,6 @@ def build_mesh(project: Project, variables, rlo, rhi, scale: float = 1.0) -> lis
             thick = b[i] - a[i]
             if thick < 1e-9 * max(1.0, abs(a[i])):
                 hard[i].append(a[i])
-            elif mat.conductor:
-                # A conductor's extent must not be moved by line merging: snapping its edge onto a
-                # neighbouring line leaves no metal on that line, so the conductor shrinks by up to a
-                # cell and small gaps silently open or close. Example: an imported HFSS lumped port
-                # 43 um short of the ground edge became a 1.4 mm gap and the port read as open.
-                hard[i] += [a[i], b[i]]
             # resolve thin dielectric layers (substrates) with at least four cells (more when refined)
             if 0 < thick < n_thin * max_res and not mat.conductor:
                 lines[i] += list(np.linspace(a[i], b[i], n_thin + 1))
@@ -186,60 +327,31 @@ def build_mesh(project: Project, variables, rlo, rhi, scale: float = 1.0) -> lis
                 lines[i].append(0.5 * (a[i] + b[i]))
                 hard[i].append(0.5 * (a[i] + b[i]))
     tol = min(max_res / 10, min_edge / 2, min_layer / 2)
+    # never merge across a gap between two conductors (or a port terminal and a conductor):
+    # that would change the circuit topology, e.g. connect a port that is floating in the source design
+    protected = [[], [], []]
+    for g in small_gaps(project, variables, max(tol, max_res / 10)):
+        protected[g["axis"]] += list(g["faces"])
     feat = float(getattr(s, "min_feature", 0.0) or 0.0)
     if feat > 0:
-        # Unresolved features: fixed planes closer than `feat` become one line at their midpoint and
-        # conductors are grown by feat/2 in build_simulation so they still reach it.
+        # Unresolved features (speed option): fixed planes and protected gap faces closer than `feat`
+        # become one line at their midpoint; sheets are thickened to >= feat so they still cover it.
         tol = max(tol, feat)
         for i in range(3):
-            fixed = _collapse(hard[i], feat)
-            hard[i] = fixed
-            lines[i] = [x for x in lines[i] if np.min(np.abs(np.asarray(fixed) - x)) >= feat] + fixed if fixed else lines[i]
+            hard[i] = _collapse(hard[i], feat)
+            protected[i] = _collapse(protected[i], feat)
+            fixed = np.asarray(hard[i] + protected[i])
+            if len(fixed):
+                lines[i] = [x for x in lines[i] if np.min(np.abs(fixed - x)) >= feat] + list(fixed)
     lines = [np.clip(lines[i], rlo[i], rhi[i]) for i in range(3)]
-    return [_smooth(lines[i], max_res, hard[i], tol) for i in range(3)], max_res
-
-
-def port_gaps(project: Project, variables=None) -> list[str]:
-    """Warnings for lumped-port ends that do not touch any conductor.
-
-    Uses conductor bounding boxes, which can only under-estimate a gap: a reported gap is real, while a
-    port end inside a box (e.g. over a hole) is not flagged. A floating port end reads as an open circuit
-    (or a small gap capacitance), which is usually a modelling mistake in the source design.
-    """
-    variables = project.resolved_variables() if variables is None else variables
-    boxes = []
-    for obj in project.objects:
-        if project.material(obj.material).conductor:
-            a, b = obj.bounds(variables, project)
-            boxes.append((obj.name, np.asarray(a, float), np.asarray(b, float)))
-    out = []
-    for port in project.ports:
-        a, b = (np.asarray(c, float) for c in port.corners(variables))
-        ax = AXES.index(port.axis.upper())
-        for end in (a[ax], b[ax]):
-            pt = 0.5 * (a + b)
-            pt[ax] = end
-            if not boxes:
-                continue
-            dists = [(float(np.linalg.norm(np.maximum(0, np.maximum(lo - pt, pt - hi)))), name) for name, lo, hi in boxes]
-            d, name = min(dists)
-            if d > 1e-9 * max(1.0, float(np.abs(pt).max())):
-                out.append(f"Port '{port.name}': the end at {port.axis.lower()} = {end:g} {project.units} does not touch "
-                           f"a conductor (nearest: {name}, {d * project.unit_scale() * 1e6:.0f} um away). The port is "
-                           f"floating there and will behave like an open circuit through a gap capacitance.")
-    return out
-
-
-def sheet_slab(mesh, max_res) -> float:
-    """Thickness given to zero-thickness sheets so their mesh plane lies inside them. Kept below the
-    smallest cell so a sheet never reaches the neighbouring line (which would close real gaps)."""
-    min_cell = min(float(np.diff(m).min()) for m in mesh if len(m) > 1)
-    return min(max_res / 5, 0.9 * min_cell)
+    return [_smooth(lines[i], max_res, hard[i], tol, protected[i]) for i in range(3)], max_res
 
 
 def _slab_for(project, mesh, max_res):
+    """Thickness given to zero-thickness sheets (polyhedra need volume). max_res/5 covers planes that
+    line merging moved by up to max_res/10; with min_feature set, at least that feature size."""
     feat = float(getattr(project.setup, "min_feature", 0.0) or 0.0)
-    return max(sheet_slab(mesh, max_res), 1.01 * feat)
+    return max(max_res / 5, 1.01 * feat)
 
 
 def build_simulation(project: Project, sim_path: str | None = None, scale: float = 1.0):
@@ -308,22 +420,6 @@ def build_simulation(project: Project, sim_path: str | None = None, scale: float
             pts, tris = cad.mesh(project, obj, slab=_slab_for(project, mesh, max_res))
             if len(tris) == 0:
                 continue
-            if mat.conductor:
-                # CSXCAD treats points exactly on a polyhedron's surface as outside, so a conductor whose
-                # edge sits on a mesh line (as every conductor extent does, see build_mesh) would have no
-                # metal on that line. Grow it outward along each axis by 0.1 % of the smallest cell so
-                # its bounding planes are inside. (Boxes/rectangles are inclusive already.)
-                pts = np.array(pts, float)
-                lo_p, hi_p = pts.min(axis=0), pts.max(axis=0)
-                grow = 1e-3 * min(float(np.diff(m).min()) for m in mesh if len(m) > 1)
-                grow = max(grow, 0.5 * float(getattr(s, "min_feature", 0.0) or 0.0) * 1.01)
-                # move only vertices on the outer bounding planes (scaling about the centre would also
-                # move interior faces, e.g. the ground layer of a sheet that spans two heights)
-                eps = 1e-9 * max(1.0, float(np.abs(pts).max()))
-                for i in range(3):
-                    if hi_p[i] - lo_p[i] > eps:
-                        pts[np.abs(pts[:, i] - lo_p[i]) < eps, i] -= grow
-                        pts[np.abs(pts[:, i] - hi_p[i]) < eps, i] += grow
             poly = prop.AddPolyhedron(priority=prio)
             for q in pts:
                 poly.AddVertex(float(q[0]), float(q[1]), float(q[2]))
@@ -367,11 +463,15 @@ def solve(project_file: str, out_dir: str) -> str:
     if not any(p.excited for p in project.ports):
         raise RuntimeError("No port is excited.")
 
-    for w in port_gaps(project):
-        print(f"[FieldForge] WARNING: {w}", flush=True)
+    variables = project.resolved_variables()
+    for msg in connectivity_warnings(project, variables):
+        print(f"[FieldForge] WARNING: {msg}", flush=True)
 
     def run_pass(scale: float):
         fdtd, csx, ports, nf2ff, info, mesh = build_simulation(project, sim_path, scale)
+        for g in small_gaps(project, variables, info["max_res"] / 10):
+            print(f"[FieldForge] Kept a {g['distance'] * 1000:.1f} um gap between '{g['a']}' and '{g['b']}' "
+                  f"open (separate mesh lines along {'xyz'[g['axis']]})", flush=True)
         print(f"[FieldForge] Mesh: {info['mesh_lines'][0]} x {info['mesh_lines'][1]} x "
               f"{info['mesh_lines'][2]} = {info['cells']:,} cells "
               f"(cells {info['min_cell']:.3g}-{info['max_res']:.3g} {project.units})", flush=True)
@@ -418,6 +518,11 @@ def solve(project_file: str, out_dir: str) -> str:
     else:
         out = run_pass(1.0)
     S, ports, nf2ff, mesh = out["S"], out["ports"], out["nf2ff"], out["mesh"]
+    if np.all(np.abs(1 - np.abs(S[exc])) < 1e-6):
+        # no current flowed: the result is the trivial open circuit, not a measurement
+        print(f"[FieldForge] WARNING: port '{project.ports[exc].name}' carried no current (|S11| = 1 at every "
+              f"frequency). The port is not driving the structure; check that its terminals and mesh lines "
+              f"are placed correctly. These results are not meaningful.", flush=True)
     Zin = np.array([p.uf_tot / p.if_tot for p in ports])
     P_acc = np.array([np.real(p.P_acc) for p in ports])
 
@@ -435,7 +540,10 @@ def solve(project_file: str, out_dir: str) -> str:
         theta = np.arange(0.0, 180.0 + step / 2, step)
         phi = np.arange(0.0, 360.0 + step / 2, step)
         print(f"[FieldForge] Computing far field at {ff_f / 1e9:g} GHz...", flush=True)
-        res = nf2ff.CalcNF2FF(sim_path, ff_f, theta, phi, center=[0, 0, 0], read_cached=False)
+        # the phase centre must lie inside the near-field recording box: use the model centre
+        mlo, mhi = model_bounds(project, project.resolved_variables())
+        centre = (0.5 * (mlo + mhi) * project.unit_scale()).tolist()
+        res = nf2ff.CalcNF2FF(sim_path, ff_f, theta, phi, center=centre, read_cached=False)
         e_norm = res.E_norm[0]
         dmax = float(np.real(res.Dmax[0]))
         D = (e_norm / e_norm.max()) ** 2 * dmax
@@ -443,9 +551,15 @@ def solve(project_file: str, out_dir: str) -> str:
         results.update(ff_freq=ff_f, ff_theta=theta, ff_phi=phi, ff_D=D, ff_Dmax=dmax,
                        ff_Prad=float(np.real(res.Prad[0])), ff_Pin=P_in,
                        ff_Etheta=np.abs(res.E_theta[0]), ff_Ephi=np.abs(res.E_phi[0]))
-        print(f"[FieldForge] Max directivity {10 * np.log10(dmax):.2f} dBi, "
-              f"radiation efficiency {100 * float(np.real(res.Prad[0])) / max(P_in, 1e-30):.1f} %",
-              flush=True)
+        s11_ff = abs(np.interp(ff_f, f, np.abs(S[exc])))
+        accepted = 1 - s11_ff ** 2
+        results.update(ff_accepted=accepted)
+        if accepted < MIN_ACCEPTED:
+            eff_txt = (f"radiation efficiency not meaningful (port accepts only {100 * accepted:.2f} % of the "
+                       f"incident power at {ff_f / 1e9:g} GHz)")
+        else:
+            eff_txt = f"radiation efficiency {100 * float(np.real(res.Prad[0])) / max(P_in, 1e-30):.1f} %"
+        print(f"[FieldForge] Max directivity {10 * np.log10(dmax):.2f} dBi, {eff_txt}", flush=True)
 
     out_file = os.path.join(out_dir, "results.npz")
     np.savez(out_file, **results)

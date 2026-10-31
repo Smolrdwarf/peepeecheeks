@@ -52,6 +52,12 @@ frequency, depth, −10 dB bandwidth, and RMS/max difference.
 Tested against 70 real HFSS designs. All import without crashing. The only operations that don't reproduce are
 some fillets/chamfers on edges whose IDs can't be matched; the corner is left sharp, and the import report says so.
 
+The mesher never changes the circuit topology. Two conductors, or a port terminal and a conductor, that
+are closer than the line-merge tolerance without touching each keep their own mesh line, so the gap stays
+open, at the cost of a smaller time step. Ports that don't touch a conductor are reported at import, in
+Validation Check and in the solver log. See `analysis/ring_hfss_vs_openems/FINDINGS.md` for the case that
+motivated this.
+
 Things to keep in mind when comparing:
 - HFSS solves with adaptive FEM. FieldForge uses FDTD, starting at 20 cells/λ (adjustable in the setup); with
   adaptive passes it refines the whole grid uniformly instead of locally. Curved and diagonal edges are staircased.

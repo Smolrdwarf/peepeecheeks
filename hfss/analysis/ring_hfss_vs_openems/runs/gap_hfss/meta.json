@@ -1,0 +1,14 @@
+{
+ "name": "gap_hfss",
+ "knobs": {
+  "gap": "0.0427"
+ },
+ "cells": 368184,
+ "min_cell_mm": 0.04270000000001062,
+ "mesh_lines": [
+  92,
+  69,
+  58
+ ],
+ "runtime_s": 141.2
+}
