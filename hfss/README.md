@@ -136,6 +136,18 @@ Source: `tests/microstrip_mesh_check.py`.
 At 6 GHz the wavelength-based cell (1.36 mm) is wider than the 1.1 mm strip, so the edge cells are sized from the
 conductor's own width (width/10) as well as the wavelength (cell/4).
 
+Patch example (32×40 mm on RO4003C), `tests/patch_mesh_check.py`:
+
+| Mesh | Resonance | S11 min | Cells | Time |
+|---|---|---|---|---|
+| No edge refinement (previous behaviour) | 2.300 GHz | −21.8 dB | 702k | 110 s |
+| Edge refinement (new default) | 2.3625 GHz | −23.7 dB | 1.06M | 146 s |
+| Adaptive, 3 passes (stopped by the 4M-cell cap, max\|dS\| still 0.09) | 2.375 GHz | −23.0 dB | 3.4M | 20 min |
+
+Edge refinement covers most of the shift toward the finest mesh (+62 of +75 MHz). The 2.30 GHz in the table
+above came from the coarser previous mesh. On a sharp resonance a 0.5 % frequency shift already gives a large
+delta S, so max delta S 0.02 is a strict target for FDTD. Consider 0.05-0.1, or raise `max_cells`.
+
 ### Solver fixes from this work
 
 - **Sheet ports:** a lumped port with width (all imported HFSS lumped ports and approximated wave ports) now gets a
