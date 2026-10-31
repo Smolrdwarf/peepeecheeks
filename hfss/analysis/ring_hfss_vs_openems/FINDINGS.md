@@ -114,7 +114,25 @@ The full numbers for every run are in `variants_table.md` and `runs/*/meta.json`
   closed: mean |ΔS| of 0.96 from 20 to 30 cells/λ, then 0.52 from 30 to 40. The adaptive
   convergence loop on the `openems-validation` branch addresses exactly this.
 
-## 5. Consequences for the tools (not fixed here, per instructions)
+## 5. Consequences for the tools
+
+**Update, same day: items 1 and 2 are now implemented in FieldForge's openEMS path** (as a backup to the
+Elmer-side fix):
+- **Topology guard.** `solver.small_gaps()` finds conductor/port pairs closer than the line-merge tolerance
+  that don't touch. Bounding boxes are only a coarse filter; each candidate is confirmed with the exact
+  OpenCascade distance. One facing mesh line on each side of the gap is protected, along the axis with
+  the largest separation, so merging can no longer close it.
+- **Port connectivity check.** `solver.port_connectivity()` measures each port terminal against the real
+  conductor geometry. A floating terminal is reported in the import report, in Validation Check and in
+  the solver log.
+- **Result on the ring,** through the normal solver at the default 20 cells/λ: the 52 µm port–ground gap
+  is kept (400k cells, smallest cell 43 µm, about 5 min instead of 30 s). The interior distance to HFSS
+  drops from **1.667 to 0.729**. That matches the analysis harness (0.760) and leaves the same unconverged
+  residual described in §4.
+- **Efficiency readout.** Radiation efficiency is now shown as "n/a" when the port accepts less than 1 % of
+  the incident power. The floating port had produced "848 %" from dividing noise by almost nothing.
+
+Original list:
 
 1. **The FieldForge mesher must not change topology.** Merging lines closer than max_res/10 can close
    (or open) a gap between conductors. Any gap between a port and a conductor needs its own mesh

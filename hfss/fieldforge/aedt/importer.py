@@ -397,6 +397,13 @@ class _Importer:
         self._ports(p, res, bnds)
         if not p.ports:
             r.notes.append("No supported excitation was found; add a lumped port before simulating")
+        else:
+            try:
+                from ..solver import connectivity_warnings
+                for msg in connectivity_warnings(p, self.var_values):
+                    r.notes.append(msg)
+            except Exception as exc:  # noqa: BLE001 - the check is advisory
+                r.notes.append(f"Port connectivity could not be checked: {exc}")
         return p, r
 
     # ------------------------------------------------------------------ ports
