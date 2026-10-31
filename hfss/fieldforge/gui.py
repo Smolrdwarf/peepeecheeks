@@ -15,7 +15,8 @@ from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QCheckBox, QColorDialog, QComboBox, QDockWidget, QFileDialog,
     QHBoxLayout, QHeaderView, QInputDialog, QLabel, QListWidget, QListWidgetItem, QMainWindow,
     QMenu, QMessageBox, QPlainTextEdit, QProgressBar, QPushButton, QSplitter, QStyle, QTableWidget,
-    QTableWidgetItem, QTabWidget, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
+    QTableWidgetItem, QTabWidget, QTextBrowser, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
+    QDialog, QDialogButtonBox,
 )
 
 from . import examples
@@ -24,11 +25,14 @@ from .model import (
     AXES, AXIS_KINDS, BOUNDARY_TYPES, FACE_NAMES, PRIMITIVE_PARAMS, UNITS, LumpedPort, Material,
     Primitive, Project, evaluate,
 )
-from .plots import FarField2D, FarField3D, ImpedancePlot, Results, SParameterPlot, SmithChart
+from . import reference as refmod
+from .plots import ComparisonPlot, FarField2D, FarField3D, ImpedancePlot, Results, SParameterPlot, SmithChart
 from .viewer import ModelerView
 
 APP_NAME = "FieldForge"
 FILE_FILTER = "FieldForge project (*.ffproj);;JSON (*.json)"
+AEDT_FILTER = "Ansys Electronics Desktop project (*.aedt *.aedtz)"
+REF_FILTER = "Reference results (*.s1p *.s2p *.s3p *.s4p *.snp *.csv);;Touchstone (*.s*p);;HFSS report CSV (*.csv)"
 HFSS_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 ROLE = Qt.UserRole
@@ -47,6 +51,8 @@ class MainWindow(QMainWindow):
         self.undo_stack: list[dict] = []
         self.redo_stack: list[dict] = []
         self.process: QProcess | None = None
+        self.references: list = []          # loaded reference results (refmod.Reference)
+        self.import_report = None
         self.selected: tuple | None = None
         self._loading_props = False
 
@@ -168,6 +174,12 @@ class MainWindow(QMainWindow):
         self.a_save = A("&Save", self.save_project, "Ctrl+S", st.standardIcon(QStyle.SP_DialogSaveButton))
         self.a_saveas = A("Save &As...", self.save_project_as, "Ctrl+Shift+S")
         self.a_exit = A("E&xit", self.close, "Alt+F4")
+        self.a_import_aedt = A("&Import Ansys HFSS Design (.aedt)...", self.import_aedt_dialog, "Ctrl+I", "import",
+                               "Import geometry, materials, ports, boundaries and setup from an HFSS project")
+        self.a_report = A("Import &Report", self.show_import_report)
+        self.a_ref = A("Load &Reference Results (Touchstone / HFSS CSV)...", self.load_reference, None, "reference",
+                       "Load S-parameters exported from HFSS to compare against")
+        self.a_compare = A("&Compare with Reference", lambda: self.open_result("compare"), None, "compare")
         self.a_undo = A("&Undo", self.undo, "Ctrl+Z", st.standardIcon(QStyle.SP_ArrowBack))
         self.a_redo = A("&Redo", self.redo, "Ctrl+Y", st.standardIcon(QStyle.SP_ArrowForward))
         self.a_delete = A("&Delete", self.delete_selected, "Delete", st.standardIcon(QStyle.SP_TrashIcon))
@@ -204,8 +216,8 @@ class MainWindow(QMainWindow):
     def _build_menus(self):
         mb = self.menuBar()
         m = mb.addMenu("&File")
-        for a in (self.a_new, self.a_open):
-            m.addAction(a)
+        for a in (self.a_new, self.a_open, None, self.a_import_aedt):
+            m.addSeparator() if a is None else m.addAction(a)
         ex = m.addMenu("&Examples")
         for title, factory in examples.EXAMPLES.items():
             ex.addAction(title, lambda f=factory: self._open_example(f))
@@ -239,7 +251,8 @@ class MainWindow(QMainWindow):
         for a in (self.a_validate, self.a_analyze, self.a_abort):
             m.addAction(a)
         m = mb.addMenu("&Results")
-        for a in (self.a_s, self.a_smith, self.a_z, None, self.a_ff3, self.a_ff2, None, self.a_touch):
+        for a in (self.a_s, self.a_smith, self.a_z, None, self.a_ff3, self.a_ff2, None, self.a_ref,
+                  self.a_compare, None, self.a_touch):
             m.addSeparator() if a is None else m.addAction(a)
         m = mb.addMenu("&Help")
         m.addAction(self.a_about)
@@ -252,12 +265,13 @@ class MainWindow(QMainWindow):
             for a in actions:
                 t.addSeparator() if a is None else t.addAction(a)
             return t
-        tb("File", [self.a_new, self.a_open, self.a_save, None, self.a_undo, self.a_redo, self.a_delete])
+        tb("File", [self.a_new, self.a_open, self.a_save, self.a_import_aedt, None, self.a_undo, self.a_redo,
+                    self.a_delete])
         tb("Draw", [self.a_box, self.a_cyl, self.a_sph, self.a_rect])
         tb("View", [self.a_fit])
         tb("Simulation", [self.a_port, self.a_region, self.a_setup, self.a_var, None,
                           self.a_validate, self.a_analyze, self.a_abort])
-        tb("Results", [self.a_s, self.a_smith, self.a_ff3])
+        tb("Results", [self.a_s, self.a_smith, self.a_ff3, None, self.a_ref, self.a_compare])
 
     # ================================================================== messages
     def message(self, level: str, text: str):
@@ -280,7 +294,16 @@ class MainWindow(QMainWindow):
         for i in range(self.tabs.count() - 1, 0, -1):
             self.tabs.removeTab(i)
         self._try_load_results()
+        self._load_references()
         self.refresh_all(reset_camera=True)
+
+    def _load_references(self):
+        self.references = []
+        for r in self.project.references:
+            try:
+                self.references.append(refmod.load(r["path"], r.get("label")))
+            except Exception as exc:  # noqa: BLE001
+                self.message("warn", f"Reference '{r.get('path')}' could not be loaded: {exc}")
 
     def _results_dir(self) -> str:
         if self.path:
@@ -311,6 +334,7 @@ class MainWindow(QMainWindow):
         self.redo_stack.append(self.project.to_dict())
         self.project = Project.from_dict(self.undo_stack.pop())
         self.dirty = True
+        self._load_references()
         self.refresh_all()
 
     def redo(self):
@@ -319,6 +343,7 @@ class MainWindow(QMainWindow):
         self.undo_stack.append(self.project.to_dict())
         self.project = Project.from_dict(self.redo_stack.pop())
         self.dirty = True
+        self._load_references()
         self.refresh_all()
 
     def refresh_all(self, reset_camera=False):
@@ -371,7 +396,7 @@ class MainWindow(QMainWindow):
             mat = p.material(mat_name)
             grp = self._item(model, mat_name, ("matgroup", mat_name), color_icon(mat.color))
             for o in objs:
-                self._item(grp, o.name, ("object", o.name), o.kind)
+                self._item(grp, o.name, ("object", o.name), "box" if o.kind == "cad" else o.kind)
         b = self._item(design, "Boundaries", ("boundaries",), folder)
         bset = sorted(set(p.region.boundaries))
         self._item(b, f"Region ({', '.join(bset)})", ("region",), "region")
@@ -388,9 +413,18 @@ class MainWindow(QMainWindow):
             if self.results.has_farfield:
                 self._item(r, "3D Far Field", ("result", "ff3d"), "farfield")
                 self._item(r, "2D Radiation Pattern", ("result", "ff2d"), "farfield")
+            if self.references:
+                self._item(r, "Comparison with Reference", ("result", "compare"), "compare")
         else:
             it = self._item(r, "(no solution data)", ("noresult",))
             it.setForeground(0, QColor("#888"))
+            if self.references:
+                self._item(r, "S Parameter Plot (reference only)", ("result", "sparam"), "plot")
+        for k, ref in enumerate(self.references):
+            self._item(r, f"Reference: {ref.label}", ("reference", k), "reference")
+        if p.source:
+            self._item(root, f"Source: {os.path.basename(p.source.get('path', ''))} / {p.source.get('design')}",
+                       ("source",), "import")
         d = self._item(root, "Definitions", ("definitions",), folder)
         self._item(d, f"Design Variables ({len(p.variables)})", ("variables",), "variable")
         mats = self._item(d, "Materials", ("materials",), folder)
@@ -445,6 +479,10 @@ class MainWindow(QMainWindow):
         key = it.data(0, ROLE)
         if key and key[0] == "result":
             self.open_result(key[1])
+        elif key and key[0] == "reference":
+            self.open_result("compare" if self.results is not None else "sparam")
+        elif key and key[0] == "source":
+            self.show_import_report()
 
     def _on_pick(self, name):
         if not name:
@@ -478,8 +516,14 @@ class MainWindow(QMainWindow):
             if kind == "material" and key[1] in self.project.materials:
                 m.addAction(self.a_delete)
         elif kind == "results" or kind == "result":
-            for a in (self.a_s, self.a_smith, self.a_z, self.a_ff3, self.a_ff2, self.a_touch):
-                m.addAction(a)
+            for a in (self.a_s, self.a_smith, self.a_z, self.a_ff3, self.a_ff2, self.a_touch, None, self.a_ref,
+                      self.a_compare):
+                m.addSeparator() if a is None else m.addAction(a)
+        elif kind == "reference":
+            m.addAction(self.a_compare)
+            m.addAction("Remove Reference", lambda k=key[1]: self.remove_reference(k))
+        elif kind in ("source", "project") and self.project.source:
+            m.addAction(self.a_report)
         if not m.isEmpty():
             m.exec(self.tree.viewport().mapToGlobal(pos))
 
@@ -524,6 +568,15 @@ class MainWindow(QMainWindow):
                 rows.append(("Transparency", f"{o.transparency:g}", "text",
                              attr_setter(o, "transparency", lambda v: min(max(float(v), 0.0), 0.95)), None))
                 rows.append(("Visible", o.visible, "check", attr_setter(o, "visible", bool), None))
+                if o.kind == "cad":
+                    title = f"Properties: {o.name} (imported)"
+                    rows.append(("Source part", o.part, "readonly", None, None))
+                    try:
+                        from . import cad
+                        rows.append(("Geometry", cad.kind(p, o), "readonly", None, None))
+                    except Exception as exc:  # noqa: BLE001
+                        rows.append(("Geometry", f"unavailable: {exc}", "readonly", None, None))
+                    rows.append(("Dimensions", "driven by design variables (Definitions)", "readonly", None, None))
         elif kind == "port":
             port = self._find("port", key[1])
             if port is not None:
@@ -600,6 +653,26 @@ class MainWindow(QMainWindow):
             rows.append(("Name", p.name, "text", attr_setter(p, "name"), None))
             rows.append(("Units", p.units, "combo", self._units_setter(), list(UNITS)))
             rows.append(("File", self.path or "(unsaved)", "readonly", None, None))
+            if p.source:
+                rows.append(("Imported from", p.source.get("path", ""), "readonly", None, None))
+                rows.append(("HFSS design", p.source.get("design", ""), "readonly", None, None))
+        elif kind == "source":
+            title = "Imported design"
+            rows.append(("File", p.source.get("path", ""), "readonly", None, None))
+            rows.append(("Design", p.source.get("design", ""), "readonly", None, None))
+            rows.append(("Model units", p.source.get("model_units", ""), "readonly", None, None))
+            rows.append(("Geometry", "rebuilt from the HFSS modeler history; edit design variables to change it",
+                         "readonly", None, None))
+        elif kind == "reference" and key[1] < len(self.references):
+            ref = self.references[key[1]]
+            title = f"Reference: {ref.label}"
+            rows.append(("Label", ref.label, "text", self._ref_label_setter(key[1]), None))
+            rows.append(("File", ref.path, "readonly", None, None))
+            rows.append(("Traces", ", ".join(t.label for t in ref.traces[:8]), "readonly", None, None))
+            tr = ref.reflection()
+            if tr is not None:
+                m = refmod.metrics(tr.freq, tr.db)
+                rows.append(("Resonance", f"{m.f_res / 1e9:.4f} GHz, {m.depth_db:.2f} dB", "readonly", None, None))
         elif kind == "result" and self.results is not None:
             r = self.results
             title = "Solution data"
@@ -885,6 +958,17 @@ class MainWindow(QMainWindow):
             self.message("error", f"  Design variables: {exc}")
             return False
         self.message("info", f"  Design variables: {len(variables)} OK")
+        if p.source:
+            try:
+                from . import cad
+                res = cad.replay(p)
+                bad = [i for i in res.issues if i.level == "error"]
+                self.message("warn" if bad else "info",
+                             f"  Imported geometry: {len(res.shapes)} objects rebuilt from "
+                             f"{os.path.basename(p.source['path'])}" + (f", {len(bad)} error(s)" if bad else ""))
+            except Exception as exc:  # noqa: BLE001
+                self.message("error", f"  Imported geometry: {exc}")
+                return False
         for o in p.objects:
             try:
                 o.values(variables)
@@ -1022,24 +1106,39 @@ class MainWindow(QMainWindow):
 
     # ================================================================== results
     def open_result(self, which, focus=True):
-        if self.results is None:
+        if self.results is None and not (which in ("sparam", "smith") and self.references):
             self.message("warn", "No solution data. Run Simulation > Analyze All first.")
             return
+        if which == "compare":
+            if not self.references:
+                self.message("warn", "No reference loaded. Use Results > Load Reference Results first.")
+                return
+            if self.results is None:
+                self.message("warn", "Run the simulation first (Simulation > Analyze All), then compare.")
+                return
         r = self.results
-        if which in ("ff3d", "ff2d") and not r.has_farfield:
+        if which in ("ff3d", "ff2d") and (r is None or not r.has_farfield):
             self.message("warn", "No far-field data: enable 'Compute far field' in the analysis setup.")
             return
         titles = {"sparam": "S Parameter Plot", "smith": "Smith Chart", "zin": "Input Impedance",
-                  "ff3d": "3D Far Field", "ff2d": "2D Radiation Pattern"}
+                  "ff3d": "3D Far Field", "ff2d": "2D Radiation Pattern", "compare": "Comparison"}
         title = titles[which]
         for i in range(self.tabs.count()):
             if self.tabs.tabText(i) == title:
                 self.tabs.setCurrentIndex(i)
                 return
         if which == "sparam":
-            w, ico = SParameterPlot(r, title), "plot"
+            w, ico = SParameterPlot(r, title, references=self.references), "plot"
         elif which == "smith":
-            w, ico = SmithChart(r, title), "smith"
+            w, ico = SmithChart(r, title, references=self.references), "smith"
+        elif which == "compare":
+            w, ico = ComparisonPlot(r, self.references[0]), "compare"
+            c = w.metrics
+            self.message("info", f"Comparison with {self.references[0].label}: resonance "
+                                 f"{c['a'].f_res / 1e9:.4f} vs {c['b'].f_res / 1e9:.4f} GHz "
+                                 f"({c['df_res_pct']:+.2f} %), depth {c['a'].depth_db:.1f} vs "
+                                 f"{c['b'].depth_db:.1f} dB"
+                                 + (f", RMS difference {c['rms_db']:.2f} dB" if c['rms_db'] is not None else ""))
         elif which == "zin":
             w, ico = ImpedancePlot(r, title), "plot"
         elif which == "ff3d":
@@ -1058,6 +1157,119 @@ class MainWindow(QMainWindow):
         if isinstance(w, FarField3D):
             w.plotter.close()
         w.deleteLater()
+
+    # ================================================================== Ansys import / references
+    def import_aedt_dialog(self):
+        if not self._confirm_discard():
+            return
+        path, _ = QFileDialog.getOpenFileName(self, "Import Ansys HFSS Design", "", AEDT_FILTER)
+        if not path:
+            return
+        from .aedt.importer import import_aedt, list_designs
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            designs = list_designs(path)
+        except Exception as exc:  # noqa: BLE001
+            QApplication.restoreOverrideCursor()
+            self.message("error", f"Could not read {path}: {exc}")
+            return
+        QApplication.restoreOverrideCursor()
+        if not designs:
+            self.message("error", f"{os.path.basename(path)} contains no HFSS designs.")
+            return
+        name = designs[0][0]
+        if len(designs) > 1:
+            labels = [f"{n}    [{t}]" for n, t in designs]
+            choice, ok = QInputDialog.getItem(self, "Import Ansys HFSS Design",
+                                              f"{os.path.basename(path)} contains {len(designs)} designs.\n"
+                                              "Choose one to import:", labels, 0, False)
+            if not ok:
+                return
+            name = designs[labels.index(choice)][0]
+        self.import_aedt_file(path, name)
+
+    def import_aedt_file(self, path, design=None, show_report=True):
+        from .aedt.importer import import_aedt
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        t0 = time.time()
+        try:
+            project, report = import_aedt(path, design)
+        except Exception as exc:  # noqa: BLE001
+            QApplication.restoreOverrideCursor()
+            self.message("error", f"Import failed: {exc}")
+            return
+        finally:
+            QApplication.restoreOverrideCursor()
+        self.load_project(project, None)
+        self.import_report = report
+        self.message("info", report.summary() + f" in {time.time() - t0:.1f} s")
+        for i in report.errors:
+            self.message("error", f"  {i}")
+        for n in report.notes:
+            self.message("warn", f"  {n}")
+        if show_report:
+            self.show_import_report()
+
+    def show_import_report(self):
+        if self.import_report is None:
+            self.message("info", "No import report for this session (re-import the .aedt to see it).")
+            return
+        dlg = QDialog(self)
+        dlg.setWindowTitle("HFSS Import Report")
+        dlg.resize(760, 680)
+        lay = QVBoxLayout(dlg)
+        view = QTextBrowser()
+        view.setHtml(self.import_report.to_html())
+        lay.addWidget(view)
+        bb = QDialogButtonBox(QDialogButtonBox.Ok)
+        bb.accepted.connect(dlg.accept)
+        lay.addWidget(bb)
+        dlg.exec()
+
+    def load_reference(self):
+        start = os.path.dirname(self.project.source.get("path", "")) if self.project.source else ""
+        path, _ = QFileDialog.getOpenFileName(self, "Load Reference Results", start, REF_FILTER)
+        if path:
+            self.add_reference(path)
+
+    def add_reference(self, path, label=None):
+        try:
+            ref = refmod.load(path, label or ("HFSS" if not self.references else None))
+        except Exception as exc:  # noqa: BLE001
+            self.message("error", f"Could not load reference {path}: {exc}")
+            return
+        self._snapshot()
+        self.project.references.append({"path": os.path.abspath(path), "label": ref.label})
+        self.references.append(ref)
+        tr = ref.reflection()
+        msg = f"Loaded reference '{ref.label}' ({len(ref.traces)} trace(s)) from {os.path.basename(path)}"
+        if tr is not None:
+            m = refmod.metrics(tr.freq, tr.db)
+            msg += f"; {tr.label} minimum {m.depth_db:.2f} dB at {m.f_res / 1e9:.4f} GHz"
+        self.message("info", msg)
+        self._close_result_tabs()
+        self.refresh_tree()
+        self._update_title()
+        self.open_result("compare" if self.results is not None else "sparam")
+
+    def remove_reference(self, k):
+        self._snapshot()
+        del self.project.references[k]
+        del self.references[k]
+        self._close_result_tabs()
+        self.refresh_all()
+
+    def _ref_label_setter(self, k):
+        def s(v):
+            self.project.references[k]["label"] = v
+            self.references[k].label = v
+            self._close_result_tabs()
+        return s
+
+    def _close_result_tabs(self):
+        for i in range(self.tabs.count() - 1, 0, -1):
+            if self.tabs.tabText(i) in ("S Parameter Plot", "Smith Chart", "Comparison"):
+                self._close_tab(i)
 
     def export_touchstone(self):
         if self.results is None:

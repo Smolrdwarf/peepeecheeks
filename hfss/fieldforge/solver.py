@@ -39,7 +39,9 @@ def model_bounds(project: Project, variables) -> tuple[np.ndarray, np.ndarray]:
     lo = np.full(3, np.inf)
     hi = np.full(3, -np.inf)
     for obj in project.objects:
-        a, b = obj.bounds(variables)
+        if obj.kind == "cad" and obj.material == "vacuum":
+            continue  # transparent construction sheets from imported designs
+        a, b = obj.bounds(variables, project)
         lo = np.minimum(lo, a)
         hi = np.maximum(hi, b)
     for port in project.ports:
@@ -53,6 +55,9 @@ def model_bounds(project: Project, variables) -> tuple[np.ndarray, np.ndarray]:
 
 def region_bounds(project: Project, variables) -> tuple[np.ndarray, np.ndarray]:
     """Simulation domain: model bounding box plus padding (lambda/4 at f_start when 'auto')."""
+    if project.region.explicit:
+        e = project.region.explicit
+        return np.array([e[0], e[2], e[4]], float), np.array([e[1], e[3], e[5]], float)
     lo, hi = model_bounds(project, variables)
     pad_expr = project.region.padding.strip()
     if pad_expr.lower() == "auto":
@@ -63,10 +68,35 @@ def region_bounds(project: Project, variables) -> tuple[np.ndarray, np.ndarray]:
     return lo - pad, hi + pad
 
 
-def _smooth(lines, max_res):
+def _merge_close(lines, hard, tol):
+    """Collapse mesh lines closer than `tol`; a cluster keeps its 'hard' line (sheet/port plane) if any."""
+    lines = np.unique(np.round(np.asarray(lines, dtype=float), 9))
+    hard = np.unique(np.round(np.asarray(hard, dtype=float), 9))
+    out, cluster = [], [lines[0]] if len(lines) else []
+    for x in lines[1:]:
+        if x - cluster[-1] < tol:
+            cluster.append(x)
+            continue
+        out.append(_representative(cluster, hard, tol))
+        cluster = [x]
+    if cluster:
+        out.append(_representative(cluster, hard, tol))
+    return np.array(out)
+
+
+def _representative(cluster, hard, tol):
+    h = [x for x in cluster if np.any(np.abs(hard - x) < 1e-9)]
+    if h:
+        return float(np.mean(h))
+    return float(cluster[0] if len(cluster) == 1 else np.mean([cluster[0], cluster[-1]]))
+
+
+def _smooth(lines, max_res, hard=(), tol=0.0):
     """Smooth mesh lines so no cell exceeds max_res and neighbours grow by <= 1.4x."""
     from CSXCAD.SmoothMeshLines import SmoothMeshLines
     lines = np.unique(np.round(np.asarray(lines, dtype=float), 9))
+    if tol > 0:
+        lines = _merge_close(lines, list(hard) + [lines[0], lines[-1]], tol)
     return SmoothMeshLines(lines, max_res, 1.4)
 
 
@@ -75,25 +105,38 @@ def build_mesh(project: Project, variables, rlo, rhi) -> list[np.ndarray]:
     f_max = float(s.f_stop) * 1e9
     eps_max = max([project.material(o.material).epsr * project.material(o.material).mur
                    for o in project.objects if not project.material(o.material).conductor] + [1.0])
+    eps_max = min(eps_max, 100.0)
     lam_min = C0 / f_max / np.sqrt(eps_max) / project.unit_scale()
     max_res = lam_min / s.cells_per_wavelength
 
     lines = [[rlo[i], rhi[i]] for i in range(3)]
+    hard = [[], [], []]   # planes that must stay exactly on a mesh line (sheets, ports)
     for obj in project.objects:
-        a, b = obj.bounds(variables)
+        mat = project.material(obj.material)
+        if obj.kind == "cad" and obj.material in ("vacuum", "air") and not mat.conductor:
+            continue
+        a, b = obj.bounds(variables, project)
         for i in range(3):
             lines[i] += [a[i], b[i]]
             thick = b[i] - a[i]
-            # resolve thin dielectric layers with a few cells
-            if 0 < thick < max_res and not project.material(obj.material).conductor:
-                lines[i] += list(np.linspace(a[i], b[i], 4))
+            if thick < 1e-9 * max(1.0, abs(a[i])):
+                hard[i].append(a[i])
+            # resolve thin dielectric layers (substrates) with at least four cells
+            if 0 < thick < 4 * max_res and not mat.conductor:
+                lines[i] += list(np.linspace(a[i], b[i], 5))
             if obj.kind in ("cylinder", "sphere") and thick > 0:
                 lines[i] += list(np.linspace(a[i], b[i], 7))
+        if obj.kind == "cad" and mat.conductor:
+            from . import cad
+            for i, coords in enumerate(cad.vertex_coords(project, obj)):
+                lines[i] += list(coords)
     for port in project.ports:
         a, b = port.corners(variables)
         for i in range(3):
             lines[i] += [a[i], b[i]]
-    return [_smooth(lines[i], max_res) for i in range(3)], max_res
+            hard[i] += [a[i], b[i]]
+    tol = max_res / 10
+    return [_smooth(lines[i], max_res, hard[i], tol) for i in range(3)], max_res
 
 
 def build_simulation(project: Project, sim_path: str | None = None):
@@ -134,7 +177,7 @@ def build_simulation(project: Project, sim_path: str | None = None):
         prop = props[obj.material]
         prio = idx + (1000 if mat.conductor else 0)  # metal always wins over dielectric
         v = obj.values(variables)
-        c = [v["x"], v["y"], v["z"]]
+        c = [v.get("x", 0.0), v.get("y", 0.0), v.get("z", 0.0)]
         a = AXES.index(obj.axis)
         if obj.kind in ("box", "rectangle"):
             lo, hi = obj.bounds(variables)
@@ -145,6 +188,17 @@ def build_simulation(project: Project, sim_path: str | None = None):
             prop.AddCylinder(c, stop, v["radius"], priority=prio)
         elif obj.kind == "sphere":
             prop.AddSphere(c, v["radius"], priority=prio)
+        elif obj.kind == "cad":
+            from . import cad
+            # sheets get a thickness of two snapping tolerances so the mesh plane they sit on is inside
+            pts, tris = cad.mesh(project, obj, slab=max_res / 5)
+            if len(tris) == 0:
+                continue
+            poly = prop.AddPolyhedron(priority=prio)
+            for q in pts:
+                poly.AddVertex(float(q[0]), float(q[1]), float(q[2]))
+            for t in tris:
+                poly.AddFace([int(t[0]), int(t[1]), int(t[2])])
 
     ports = []
     for n, port in enumerate(project.ports, start=1):

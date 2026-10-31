@@ -13,7 +13,7 @@ from dataclasses import asdict, dataclass, field
 
 FORMAT_VERSION = 1
 
-UNITS = {"m": 1.0, "mm": 1e-3, "um": 1e-6, "mil": 25.4e-6, "in": 25.4e-3}
+UNITS = {"m": 1.0, "cm": 1e-2, "mm": 1e-3, "um": 1e-6, "nm": 1e-9, "mil": 25.4e-6, "in": 25.4e-3}
 AXES = ("X", "Y", "Z")
 
 
@@ -28,6 +28,16 @@ _FUNCS = {
     "sin": math.sin, "cos": math.cos, "tan": math.tan, "sqrt": math.sqrt,
     "abs": abs, "min": min, "max": max, "exp": math.exp, "log": math.log,
     "log10": math.log10, "atan": math.atan, "asin": math.asin, "acos": math.acos,
+    # functions that appear in Ansys AEDT expressions
+    "ln": math.log, "pow": math.pow, "floor": math.floor, "ceil": math.ceil, "round": round,
+    "sgn": lambda x: math.copysign(1.0, x) if x else 0.0, "atan2": math.atan2,
+    "sinh": math.sinh, "cosh": math.cosh, "tanh": math.tanh, "even": lambda x: float(int(x) % 2 == 0),
+    "odd": lambda x: float(int(x) % 2 == 1), "int": lambda x: float(int(x)),
+    "_if": lambda c, a, b: a if c else b,
+}
+_COMPARE = {
+    ast.Lt: operator.lt, ast.LtE: operator.le, ast.Gt: operator.gt, ast.GtE: operator.ge,
+    ast.Eq: operator.eq, ast.NotEq: operator.ne,
 }
 _CONSTS = {"pi": math.pi, "c0": 299792458.0, "e": math.e}
 
@@ -63,6 +73,8 @@ def evaluate(expr, variables: dict[str, float] | None = None) -> float:
             raise ExpressionError(f"Unknown variable '{node.id}' in '{expr}'")
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in _FUNCS:
             return float(_FUNCS[node.func.id](*[ev(a) for a in node.args]))
+        if isinstance(node, ast.Compare) and len(node.ops) == 1 and type(node.ops[0]) in _COMPARE:
+            return float(_COMPARE[type(node.ops[0])](ev(node.left), ev(node.comparators[0])))
         raise ExpressionError(f"Unsupported syntax in '{expr}'")
 
     return ev(tree)
@@ -109,6 +121,8 @@ PRIMITIVE_PARAMS = {
                ("radius", "Radius", "5")],
     "rectangle": [("x", "Position X", "0"), ("y", "Position Y", "0"), ("z", "Position Z", "0"),
                   ("w", "Width", "10"), ("l", "Length", "10")],
+    # geometry rebuilt from an imported Ansys AEDT design (see fieldforge.cad)
+    "cad": [],
 }
 # Kinds that carry an orientation axis (cylinder axis / rectangle normal)
 AXIS_KINDS = {"cylinder", "rectangle"}
@@ -128,6 +142,7 @@ class Primitive:
     axis: str = "Z"
     transparency: float = 0.0
     visible: bool = True
+    part: str = ""              # 'cad' kind: name of the part in the source design
 
     def __post_init__(self):
         for key, _, default in PRIMITIVE_PARAMS[self.kind]:
@@ -136,8 +151,12 @@ class Primitive:
     def values(self, variables) -> dict[str, float]:
         return {k: evaluate(v, variables) for k, v in self.params.items()}
 
-    def bounds(self, variables) -> tuple[list[float], list[float]]:
+    def bounds(self, variables, project=None) -> tuple[list[float], list[float]]:
         """Axis-aligned bounding box (start, stop) in project units."""
+        if self.kind == "cad":
+            from . import cad
+            lo, hi = cad.bounds(project, self)
+            return list(lo), list(hi)
         v = self.values(variables)
         c = [v["x"], v["y"], v["z"]]
         a = AXES.index(self.axis)
@@ -185,6 +204,7 @@ class Region:
     """Simulation domain around the model, with a boundary condition per face."""
     padding: str = "auto"                                   # 'auto' = lambda/4 at f_min
     boundaries: list = field(default_factory=lambda: ["PML_8"] * 6)
+    explicit: list | None = None                            # [xmin, xmax, ymin, ymax, zmin, zmax] overrides padding
 
 
 @dataclass
@@ -211,6 +231,8 @@ class Project:
     materials: dict = field(default_factory=dict)          # user-defined, name -> Material
     region: Region = field(default_factory=Region)
     setup: Setup = field(default_factory=Setup)
+    source: dict = field(default_factory=dict)             # e.g. imported .aedt file and design name
+    references: list = field(default_factory=list)         # reference results (Touchstone) to compare against
 
     # ----------------------------------------------------------------- helpers
     def material(self, name: str) -> Material:
@@ -271,6 +293,8 @@ class Project:
                        for k, m in d.get("materials", {}).items()},
             region=Region(**d.get("region", {})),
             setup=Setup(**d.get("setup", {})),
+            source=dict(d.get("source", {})),
+            references=list(d.get("references", [])),
         )
         return p
 

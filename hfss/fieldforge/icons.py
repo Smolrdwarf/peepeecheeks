@@ -110,6 +110,26 @@ def icon(name: str) -> QIcon:
                                (4, 21, 4, 28), (4, 28, 11, 28), (21, 28, 28, 28), (28, 21, 28, 28)]:
             p.drawLine(x1, y1, x2, y2)
         p.drawRect(QRectF(11, 11, 10, 10))
+    elif name == "import":
+        p.setBrush(QBrush(QColor("#fff4c2")))
+        p.drawRect(QRectF(4, 12, 24, 16))
+        p.setPen(QPen(QColor("#c0392b"), 3))
+        p.drawLine(16, 3, 16, 19)
+        p.drawLine(16, 20, 11, 14)
+        p.drawLine(16, 20, 21, 14)
+    elif name == "reference":
+        p.setBrush(QBrush(QColor("#ffffff")))
+        p.drawRect(QRectF(3, 4, 26, 24))
+        p.setPen(QPen(QColor("#000000"), 2, Qt.DashLine))
+        p.drawPolyline(QPolygonF([QPointF(5, 9), QPointF(11, 11), QPointF(16, 25),
+                                  QPointF(20, 12), QPointF(27, 9)]))
+    elif name == "compare":
+        p.setBrush(QBrush(QColor("#ffffff")))
+        p.drawRect(QRectF(3, 4, 26, 24))
+        p.setPen(QPen(QColor("#d62728"), 2))
+        p.drawPolyline(QPolygonF([QPointF(5, 9), QPointF(11, 11), QPointF(15, 24), QPointF(19, 12), QPointF(27, 9)]))
+        p.setPen(QPen(QColor("#000000"), 1.6, Qt.DashLine))
+        p.drawPolyline(QPolygonF([QPointF(5, 10), QPointF(12, 12), QPointF(17, 22), QPointF(21, 11), QPointF(27, 10)]))
     else:
         p.setBrush(QBrush(QColor("#c0c0c0")))
         p.drawRect(QRectF(6, 6, 20, 20))

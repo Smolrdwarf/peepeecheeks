@@ -3,3 +3,6 @@ _scratch/
 __pycache__/
 *.pyc
 *.ffresults/
+*.aedt
+*.aedtz
+*.aedtresults/

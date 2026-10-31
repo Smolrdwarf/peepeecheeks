@@ -14,7 +14,13 @@ SELECT_COLOR = "#ff00ff"
 PORT_COLOR = "#e02020"
 
 
-def primitive_mesh(obj, variables) -> pv.PolyData:
+def primitive_mesh(obj, variables, project=None) -> pv.PolyData:
+    if obj.kind == "cad":
+        from . import cad
+        pts, tris = cad.mesh(project, obj)
+        if len(tris) == 0:
+            raise ValueError("no surface to display")
+        return pv.PolyData(pts, np.hstack([np.full((len(tris), 1), 3), tris]).ravel())
     v = obj.values(variables)
     c = np.array([v["x"], v["y"], v["z"]])
     a = AXES.index(obj.axis)
@@ -59,6 +65,8 @@ class ModelerView(QtInteractor):
         self.add_axes(interactive=False, line_width=2, color="black")
         self._actors: dict[str, object] = {}
         self._actor_names: dict[int, str] = {}
+        self._tessellated: dict[str, bool] = {}
+        self._colors: dict[str, tuple] = {}
         self._selected: str | None = None
         self._show_grid = True
         self._press_pos = None
@@ -88,6 +96,8 @@ class ModelerView(QtInteractor):
         self.remove_actor("region", render=False)
         self.remove_bounds_axes()
         self._actors.clear()
+        self._tessellated.clear()
+        self._colors.clear()
         self._actor_names.clear()
         try:
             variables = project.resolved_variables()
@@ -101,17 +111,19 @@ class ModelerView(QtInteractor):
             if not obj.visible:
                 continue
             try:
-                mesh = primitive_mesh(obj, variables)
+                mesh = primitive_mesh(obj, variables, project)
             except Exception as exc:  # noqa: BLE001
                 if errors is not None:
                     errors.append(f"{obj.name}: {exc}")
                 continue
             mat = project.material(obj.material)
             actor = self.add_mesh(mesh, color=mat.color, opacity=1.0 - obj.transparency,
-                                  show_edges=False, smooth_shading=obj.kind in ("cylinder", "sphere"),
+                                  show_edges=False, smooth_shading=obj.kind in ("cylinder", "sphere", "cad"),
                                   specular=0.4 if mat.conductor else 0.1, render=False,
                                   name=f"obj::{obj.name}", pickable=True)
             self._actors[obj.name] = actor
+            self._tessellated[obj.name] = obj.kind == "cad"
+            self._colors[obj.name] = mat.color
             feature_edges = mesh.extract_feature_edges(45)
             if feature_edges.n_points:  # spheres have no sharp edges
                 self._actors[f"edge::{obj.name}"] = self.add_mesh(
@@ -161,6 +173,12 @@ class ModelerView(QtInteractor):
             if key.startswith("edge::"):
                 continue
             prop = actor.GetProperty()
+            if self._tessellated.get(key):
+                # imported geometry is triangulated: tint instead of drawing every triangle edge
+                base = self._colors.get(key, (0.6, 0.6, 0.6))
+                sel = pv.Color(SELECT_COLOR).float_rgb
+                prop.SetColor(*(tuple(0.45 * b + 0.55 * s for b, s in zip(base, sel)) if key == name else base))
+                continue
             if key == name:
                 prop.SetEdgeVisibility(True)
                 prop.SetEdgeColor(pv.Color(SELECT_COLOR).float_rgb)

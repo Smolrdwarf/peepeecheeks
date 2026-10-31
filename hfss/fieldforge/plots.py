@@ -59,22 +59,37 @@ class _MplPanel(QWidget):
         self.canvas.draw_idle()
 
 
+REF_COLORS = ["#000000", "#7f7f7f", "#17becf", "#bcbd22"]
+
+
 class SParameterPlot(_MplPanel):
-    def __init__(self, res: Results, title="S Parameter Plot", parent=None):
+    """dB(S) of the FieldForge solution, with reference results (e.g. HFSS) drawn dashed."""
+
+    def __init__(self, res: Results | None, title="S Parameter Plot", parent=None, references=()):
         super().__init__(parent)
-        f = res.freq / 1e9
-        for i in range(res.S.shape[0]):
-            db = 20 * np.log10(np.maximum(np.abs(res.S[i]), 1e-12))
-            self.ax.plot(f, db, color=TRACE_COLORS[i % len(TRACE_COLORS)], lw=1.8,
-                         label=f"dB({res.s_label(i)})")
-            if i == res.excited:
-                k = int(np.argmin(db))
-                self.ax.plot(f[k], db[k], "v", color="black")
-                self.ax.annotate(f"m1: {f[k]:.4f} GHz, {db[k]:.2f} dB", (f[k], db[k]),
-                                 xytext=(12, 18), textcoords="offset points", fontsize=8,
-                                 arrowprops=dict(arrowstyle="-", color="#666"),
-                                 bbox=dict(boxstyle="round", fc="#ffffe0", ec="#888"))
-        self.ax.set_xlim(f[0], f[-1])
+        fmin, fmax = np.inf, -np.inf
+        if res is not None:
+            f = res.freq / 1e9
+            fmin, fmax = f[0], f[-1]
+            for i in range(res.S.shape[0]):
+                db = 20 * np.log10(np.maximum(np.abs(res.S[i]), 1e-12))
+                self.ax.plot(f, db, color=TRACE_COLORS[i % len(TRACE_COLORS)], lw=1.8,
+                             label=f"FieldForge dB({res.s_label(i)})")
+                if i == res.excited:
+                    k = int(np.argmin(db))
+                    self.ax.plot(f[k], db[k], "v", color="black")
+                    self.ax.annotate(f"m1: {f[k]:.4f} GHz, {db[k]:.2f} dB", (f[k], db[k]),
+                                     xytext=(12, 18), textcoords="offset points", fontsize=8,
+                                     arrowprops=dict(arrowstyle="-", color="#666"),
+                                     bbox=dict(boxstyle="round", fc="#ffffe0", ec="#888"))
+        for r_i, ref in enumerate(references):
+            for t_i, tr in enumerate(ref.traces[:4]):
+                ff = tr.freq / 1e9
+                fmin, fmax = min(fmin, ff[0]), max(fmax, ff[-1])
+                self.ax.plot(ff, tr.db, color=REF_COLORS[(r_i + t_i) % len(REF_COLORS)], lw=1.5, ls="--",
+                             label=f"{ref.label}: dB({tr.label})")
+        if np.isfinite(fmin):
+            self.ax.set_xlim(fmin, fmax)
         lo = min(line.get_ydata().min() for line in self.ax.get_lines())
         self.ax.set_ylim(min(lo - 3, -10), 1)
         self.ax.legend(loc="lower left", fontsize=8, framealpha=0.9)
@@ -96,7 +111,7 @@ class ImpedancePlot(_MplPanel):
 
 
 class SmithChart(_MplPanel):
-    def __init__(self, res: Results, title="Smith Chart", parent=None):
+    def __init__(self, res: Results | None, title="Smith Chart", parent=None, references=()):
         super().__init__(parent)
         ax = self.ax
         ax.set_aspect("equal")
@@ -113,13 +128,82 @@ class SmithChart(_MplPanel):
                 g = (z - 1) / (z + 1)
                 ax.plot(g.real, g.imag, **grid)
         ax.plot([-1, 1], [0, 0], **grid)
-        s = res.S[res.excited]
-        ax.plot(s.real, s.imag, color=TRACE_COLORS[0], lw=1.8, label=res.s_label(res.excited))
-        ax.plot(s.real[0], s.imag[0], "o", color=TRACE_COLORS[0], ms=4)
+        if res is not None:
+            s = res.S[res.excited]
+            ax.plot(s.real, s.imag, color=TRACE_COLORS[0], lw=1.8, label=f"FieldForge {res.s_label(res.excited)}")
+            ax.plot(s.real[0], s.imag[0], "o", color=TRACE_COLORS[0], ms=4)
+        for r_i, ref in enumerate(references):
+            tr = ref.reflection()
+            if tr is not None and tr.complex is not None:
+                ax.plot(tr.complex.real, tr.complex.imag, color=REF_COLORS[r_i % len(REF_COLORS)], lw=1.5,
+                        ls="--", label=f"{ref.label}: {tr.label}")
         ax.legend(loc="upper left", fontsize=8)
         ax.set_xlim(-1.08, 1.08)
         ax.set_ylim(-1.08, 1.08)
         self._style(title)
+
+
+class ComparisonPlot(QWidget):
+    """|S11| of FieldForge vs a reference (e.g. HFSS), their difference, and key metrics side by side."""
+
+    def __init__(self, res: Results, ref, parent=None):
+        super().__init__(parent)
+        from .reference import compare
+        self.figure = Figure(figsize=(7, 6), dpi=100, layout="constrained")
+        self.canvas = FigureCanvasQTAgg(self.figure)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(NavigationToolbar2QT(self.canvas, self))
+        layout.addWidget(self.canvas)
+        gs = self.figure.add_gridspec(3, 1, height_ratios=[3, 1.3, 1.4])
+        ax1 = self.figure.add_subplot(gs[0])
+        ax2 = self.figure.add_subplot(gs[1], sharex=ax1)
+        ax3 = self.figure.add_subplot(gs[2])
+        ax3.axis("off")
+
+        fa = res.freq
+        dba = 20 * np.log10(np.maximum(np.abs(res.S[res.excited]), 1e-12))
+        tr = ref.reflection()
+        fb, dbb = tr.freq, tr.db
+        c = compare(fa, dba, fb, dbb)
+        ax1.plot(fa / 1e9, dba, color=TRACE_COLORS[0], lw=1.8, label=f"FieldForge dB({res.s_label(res.excited)})")
+        ax1.plot(fb / 1e9, dbb, color="black", lw=1.5, ls="--", label=f"{ref.label}: dB({tr.label})")
+        for m, col in ((c["a"], TRACE_COLORS[0]), (c["b"], "black")):
+            ax1.plot(m.f_res / 1e9, m.depth_db, "v", color=col)
+            if m.bw_lo is not None:
+                ax1.axvspan(m.bw_lo / 1e9, m.bw_hi / 1e9, color=col, alpha=0.06)
+        ax1.axhline(-10, color="#999", lw=0.8, ls=":")
+        ax1.set_ylabel("dB")
+        ax1.legend(loc="lower left", fontsize=8)
+        ax1.grid(True, color="#d0d0d0", lw=0.6)
+        ax1.set_title(f"Comparison with {ref.label}", fontsize=11, fontweight="bold", loc="left")
+        lo, hi = c["band"]
+        if hi > lo:
+            f = np.linspace(lo, hi, 801)
+            d = np.interp(f, fa, dba) - np.interp(f, fb, dbb)
+            ax2.plot(f / 1e9, d, color="#9467bd", lw=1.4)
+            ax2.axhline(0, color="black", lw=0.8)
+        ax2.set_ylabel("Delta dB")
+        ax2.set_xlabel("Freq [GHz]")
+        ax2.grid(True, color="#d0d0d0", lw=0.6)
+
+        def bw(m):
+            return "-" if m.bandwidth is None else f"{m.bandwidth / 1e6:.0f} MHz ({100 * m.bandwidth / m.f_res:.1f} %)"
+        rows = [
+            ["Resonance (min |S11|)", f"{c['a'].f_res / 1e9:.4f} GHz", f"{c['b'].f_res / 1e9:.4f} GHz",
+             f"{c['df_res'] / 1e6:+.0f} MHz ({c['df_res_pct']:+.2f} %)"],
+            ["Depth", f"{c['a'].depth_db:.2f} dB", f"{c['b'].depth_db:.2f} dB",
+             f"{c['a'].depth_db - c['b'].depth_db:+.2f} dB"],
+            ["-10 dB bandwidth", bw(c["a"]), bw(c["b"]), ""],
+            ["RMS / max difference", "", "", "-" if c["rms_db"] is None else f"{c['rms_db']:.2f} / {c['max_db']:.2f} dB"],
+        ]
+        table = ax3.table(cellText=rows, colLabels=["", "FieldForge", ref.label, "Difference"], loc="center",
+                          cellLoc="center", colWidths=[0.28, 0.22, 0.22, 0.28])
+        table.auto_set_font_size(False)
+        table.set_fontsize(8.5)
+        table.scale(1, 1.3)
+        self.metrics = c
+        self.canvas.draw_idle()
 
 
 class FarField2D(_MplPanel):
@@ -183,7 +267,7 @@ class FarField3D(QWidget):
             for obj in project.objects:
                 if obj.visible:
                     try:
-                        p.add_mesh(primitive_mesh(obj, variables), color=project.material(obj.material).color,
+                        p.add_mesh(primitive_mesh(obj, variables, project), color=project.material(obj.material).color,
                                    opacity=0.5)
                     except Exception:  # noqa: BLE001
                         pass
