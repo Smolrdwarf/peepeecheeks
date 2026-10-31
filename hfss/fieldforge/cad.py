@@ -80,6 +80,28 @@ def mesh(project, obj, slab: float = 0.0) -> tuple[np.ndarray, np.ndarray]:
     return out
 
 
+def solid_meshes(project, obj, slab: float = 0.0) -> list[tuple[np.ndarray, np.ndarray]]:
+    """One closed triangle mesh per solid of the object (sheets thickened to `slab` first).
+
+    openEMS needs each polyhedron to be a closed surface, so a multi-body object is split per solid.
+    """
+    from .aedt import geometry as G
+    replay(project)
+    key = ("solids", obj.part, slab if callable(slab) else round(slab, 12))
+    hit = _cache["meshes"].get(key)
+    if hit is not None:
+        return hit
+    s = shape(project, obj)
+    if (callable(slab) or slab > 0) and G.shape_kind(s) == "sheet":
+        s = G.sheet_to_slab(s, slab)
+    solids = G.solids_of(s) or [s]
+    lo, hi = G.bounds(s)
+    deflection = max(float(np.linalg.norm(hi - lo)) * 2e-3, 1e-6)
+    out = [m for m in (G.tessellate(sol, deflection) for sol in solids) if len(m[1])]
+    _cache["meshes"][key] = out
+    return out
+
+
 def vertex_coords(project, obj, limit: int = 64) -> list[np.ndarray]:
     """Distinct x/y/z coordinates of an object's B-rep vertices (for mesh-line seeding)."""
     from OCP.BRep import BRep_Tool

@@ -1326,16 +1326,46 @@ def shape_kind(shape) -> str:
 
 
 def sheet_to_slab(shape, thickness: float):
-    """Give zero-thickness sheets a tiny thickness so they become closed polyhedra for the FDTD mesher."""
+    """Give zero-thickness sheets a tiny thickness so they become closed polyhedra for the FDTD mesher.
+
+    Adjacent coplanar faces are merged first; thickening them one by one would leave shared side walls
+    and produce a non-manifold (not watertight) polyhedron.
+    """
+    from OCP.ShapeUpgrade import ShapeUpgrade_UnifySameDomain
+    try:
+        fused = shape
+        fs = faces_of(shape)
+        if len(fs) > 1:
+            fused = fs[0]
+            for f in fs[1:]:
+                fused = BRepAlgoAPI_Fuse(fused, f).Shape()
+        unify = ShapeUpgrade_UnifySameDomain(fused, True, True, True)
+        unify.Build()
+        shape = unify.Shape()
+    except Exception:  # noqa: BLE001 - fall back to the faces as they are
+        pass
     out = []
     for f in faces_of(shape):
         n = face_normal(f)
         if n is None:
             continue
+        th = thickness
+        if callable(thickness):
+            # per-face thickness: (normal axis, plane coordinate) for axis-aligned faces, else (None, None)
+            ax = int(np.argmax(np.abs(n)))
+            if abs(abs(n[ax]) - 1) < 1e-9:
+                lo, hi = bounds(f)
+                th = thickness(ax, 0.5 * (lo[ax] + hi[ax]))
+            else:
+                th = thickness(None, None)
         t = gp_Trsf()
-        t.SetTranslation(gp_Vec(*(-n * thickness / 2)))
-        out.append(BRepPrimAPI_MakePrism(transformed(f, t), gp_Vec(*(n * thickness))).Shape())
+        t.SetTranslation(gp_Vec(*(-n * th / 2)))
+        out.append(BRepPrimAPI_MakePrism(transformed(f, t), gp_Vec(*(n * th))).Shape())
     return compound(out)
+
+
+def solids_of(shape):
+    return [TopoDS.Solid(s) for s in _iter(shape, TopAbs_SOLID)]
 
 
 def write_brep(shape, path: str):
