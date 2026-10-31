@@ -1,0 +1,78 @@
+{
+  "case": "pec_sphere_rcs",
+  "description": "PEC sphere a=200 mm, monostatic RCS, ka 0.21-4.19",
+  "hfss_equivalent": "Driven Modal, incident plane wave, monostatic RCS far-field sweep",
+  "metrics": [
+    {
+      "name": "RCS/(pi a^2) @ ka=0.5",
+      "unit": "dB",
+      "openems": -2.635536237166718,
+      "reference": -2.6614398197326627,
+      "reference_source": "analytic",
+      "tol_pct": null,
+      "tol_abs": 0.5,
+      "upper_bound": false,
+      "error_abs": 0.025903582565944827,
+      "error_pct": -0.9732920644640689,
+      "passed": true
+    },
+    {
+      "name": "RCS/(pi a^2) @ ka=1",
+      "unit": "dB",
+      "openems": 5.7427404448974535,
+      "reference": 5.616059511635094,
+      "reference_source": "analytic",
+      "tol_pct": null,
+      "tol_abs": 0.5,
+      "upper_bound": false,
+      "error_abs": 0.1266809332623593,
+      "error_pct": 2.2556907205115535,
+      "passed": true
+    },
+    {
+      "name": "RCS/(pi a^2) @ ka=2",
+      "unit": "dB",
+      "openems": 0.11827054049863361,
+      "reference": -0.14020546940097584,
+      "reference_source": "analytic",
+      "tol_pct": null,
+      "tol_abs": 0.5,
+      "upper_bound": false,
+      "error_abs": 0.25847600989960945,
+      "error_pct": -184.35515461981717,
+      "passed": true
+    },
+    {
+      "name": "RCS/(pi a^2) @ ka=3",
+      "unit": "dB",
+      "openems": -3.6397977392967866,
+      "reference": -2.8502543068670407,
+      "reference_source": "analytic",
+      "tol_pct": null,
+      "tol_abs": 0.5,
+      "upper_bound": false,
+      "error_abs": -0.7895434324297459,
+      "error_pct": 27.70080657461056,
+      "passed": false
+    },
+    {
+      "name": "RMS error, ka 0.3-4.2",
+      "unit": "dB",
+      "openems": 0.3953602366695988,
+      "reference": 0.5,
+      "reference_source": "analytic",
+      "tol_pct": null,
+      "tol_abs": null,
+      "upper_bound": true,
+      "error_abs": -0.1046397633304012,
+      "error_pct": -20.92795266608024,
+      "passed": true
+    }
+  ],
+  "runtime_s": 176.29662895202637,
+  "notes": [
+    "FDTD cell = lambda/25 at 1 GHz, 6 mm around sphere; staircased sphere",
+    "no HFSS reference supplied (references/hfss/pec_sphere_rcs.csv); compared to analytic only"
+  ],
+  "passed": false
+}

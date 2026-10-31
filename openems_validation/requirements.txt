@@ -1,0 +1,6 @@
+# openEMS + CSXCAD wheels are NOT on PyPI; install them from the openEMS Windows package
+# (see README.md "Install"). Everything else:
+numpy
+scipy
+matplotlib
+h5py

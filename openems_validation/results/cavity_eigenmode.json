@@ -1,0 +1,117 @@
+{
+  "case": "cavity_eigenmode",
+  "description": "PEC cavity 22.86 x 10.16 x 30.0 mm, modes 5-17.5 GHz",
+  "hfss_equivalent": "Eigenmode solver, PEC boundaries, N modes",
+  "metrics": [
+    {
+      "name": "f(TE101)",
+      "unit": "GHz",
+      "openems": 8.243349448907942,
+      "reference": 8.243877215534543,
+      "reference_source": "analytic",
+      "tol_pct": 0.5,
+      "tol_abs": null,
+      "upper_bound": false,
+      "error_abs": -0.0005277666266003678,
+      "error_pct": -0.006401922454714129,
+      "passed": true
+    },
+    {
+      "name": "f(TE102)",
+      "unit": "GHz",
+      "openems": 11.950331105121323,
+      "reference": 11.952312597967993,
+      "reference_source": "analytic",
+      "tol_pct": 0.5,
+      "tol_abs": null,
+      "upper_bound": false,
+      "error_abs": -0.001981492846669042,
+      "error_pct": -0.016578321813687458,
+      "passed": true
+    },
+    {
+      "name": "f(TE201)",
+      "unit": "GHz",
+      "openems": 14.028252075026268,
+      "reference": 14.03387976592729,
+      "reference_source": "analytic",
+      "tol_pct": 0.5,
+      "tol_abs": null,
+      "upper_bound": false,
+      "error_abs": -0.00562769090102222,
+      "error_pct": -0.04010074900802294,
+      "passed": true
+    },
+    {
+      "name": "f(TE011)",
+      "unit": "GHz",
+      "openems": 15.569080299639293,
+      "reference": 15.576685360413224,
+      "reference_source": "analytic",
+      "tol_pct": 0.5,
+      "tol_abs": null,
+      "upper_bound": false,
+      "error_abs": -0.007605060773931527,
+      "error_pct": -0.04882335745998388,
+      "passed": true
+    },
+    {
+      "name": "f(TM110)",
+      "unit": "GHz",
+      "openems": 16.138243341645506,
+      "reference": 16.14508578790973,
+      "reference_source": "analytic",
+      "tol_pct": 0.5,
+      "tol_abs": null,
+      "upper_bound": false,
+      "error_abs": -0.006842446264222701,
+      "error_pct": -0.042380984245662404,
+      "passed": true
+    },
+    {
+      "name": "f(TE103)",
+      "unit": "GHz",
+      "openems": 16.352948445110965,
+      "reference": 16.361078344578505,
+      "reference_source": "analytic",
+      "tol_pct": 0.5,
+      "tol_abs": null,
+      "upper_bound": false,
+      "error_abs": -0.008129899467540724,
+      "error_pct": -0.04969048675348891,
+      "passed": true
+    },
+    {
+      "name": "f(TE202)",
+      "unit": "GHz",
+      "openems": 16.48353189656453,
+      "reference": 16.487754431069085,
+      "reference_source": "analytic",
+      "tol_pct": 0.5,
+      "tol_abs": null,
+      "upper_bound": false,
+      "error_abs": -0.004222534504556563,
+      "error_pct": -0.025610124909428125,
+      "passed": true
+    },
+    {
+      "name": "f(TE111/TM111)",
+      "unit": "GHz",
+      "openems": 16.895061945806383,
+      "reference": 16.90056853276075,
+      "reference_source": "analytic",
+      "tol_pct": 0.5,
+      "tol_abs": null,
+      "upper_bound": false,
+      "error_abs": -0.005506586954368231,
+      "error_pct": -0.032582258660080216,
+      "passed": true
+    }
+  ],
+  "runtime_s": 44.50263023376465,
+  "notes": [
+    "81 spectral peaks found; NaN = mode not detected within 1% (T_sim = 143 ns, resolution ~7 MHz)",
+    "no HFSS reference supplied (references/hfss/cavity_eigenmode.csv); compared to analytic only"
+  ],
+  "passed": true
+}

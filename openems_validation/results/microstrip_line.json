@@ -1,0 +1,52 @@
+{
+  "case": "microstrip_line",
+  "description": "Microstrip w=1.1 mm on h=0.508 mm RO4003C (er=3.38)",
+  "hfss_equivalent": "Driven Terminal, 2 wave ports, sweep 0.5-6 GHz (port Zo, gamma)",
+  "metrics": [
+    {
+      "name": "Z0 @ 2 GHz",
+      "unit": "ohm",
+      "openems": 51.8297568145836,
+      "reference": 52.144888937484865,
+      "reference_source": "analytic",
+      "tol_pct": 2.0,
+      "tol_abs": null,
+      "upper_bound": false,
+      "error_abs": -0.315132122901268,
+      "error_pct": -0.6043394267826931,
+      "passed": true
+    },
+    {
+      "name": "eps_eff @ 2 GHz",
+      "unit": "-",
+      "openems": 2.673882616869518,
+      "reference": 2.661572300025273,
+      "reference_source": "analytic",
+      "tol_pct": 2.0,
+      "tol_abs": null,
+      "upper_bound": false,
+      "error_abs": 0.012310316844244884,
+      "error_pct": 0.4625204749887121,
+      "passed": true
+    },
+    {
+      "name": "min |S21| 0.5-6 GHz (lossless)",
+      "unit": "dB",
+      "openems": -0.02747644352268468,
+      "reference": 0.0,
+      "reference_source": "analytic",
+      "tol_pct": null,
+      "tol_abs": 0.2,
+      "upper_bound": false,
+      "error_abs": -0.02747644352268468,
+      "error_pct": NaN,
+      "passed": true
+    }
+  ],
+  "runtime_s": 87.48906373977661,
+  "notes": [
+    "Reference is Hammerstad-Jensen (zero strip thickness, quasi-static).",
+    "no HFSS reference supplied (references/hfss/microstrip_line.csv); compared to analytic only"
+  ],
+  "passed": true
+}

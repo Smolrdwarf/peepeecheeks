@@ -1,0 +1,78 @@
+{
+  "case": "wr90_waveguide",
+  "description": "WR-90 straight guide, TE10, 8-12 GHz",
+  "hfss_equivalent": "Driven Modal, 2 wave ports, interpolating sweep 8-12 GHz",
+  "metrics": [
+    {
+      "name": "TE10 cutoff frequency",
+      "unit": "GHz",
+      "openems": 6.550044612714365,
+      "reference": 6.557140376202975,
+      "reference_source": "analytic",
+      "tol_pct": 0.5,
+      "tol_abs": null,
+      "upper_bound": false,
+      "error_abs": -0.007095763488609741,
+      "error_pct": -0.10821429893984769,
+      "passed": true
+    },
+    {
+      "name": "beta @ 10 GHz",
+      "unit": "rad/m",
+      "openems": 158.3483718146667,
+      "reference": 158.23825631301972,
+      "reference_source": "analytic",
+      "tol_pct": 0.5,
+      "tol_abs": null,
+      "upper_bound": false,
+      "error_abs": 0.11011550164698747,
+      "error_pct": 0.06958841952173815,
+      "passed": true
+    },
+    {
+      "name": "wave impedance @ 10 GHz",
+      "unit": "ohm",
+      "openems": 501.84512584187445,
+      "reference": 498.9743760353757,
+      "reference_source": "analytic",
+      "tol_pct": 1.0,
+      "tol_abs": null,
+      "upper_bound": false,
+      "error_abs": 2.8707498064987362,
+      "error_pct": 0.57533010598829,
+      "passed": true
+    },
+    {
+      "name": "min |S21| over band",
+      "unit": "dB",
+      "openems": -0.0003210871274424605,
+      "reference": 0.0,
+      "reference_source": "analytic",
+      "tol_pct": null,
+      "tol_abs": 0.1,
+      "upper_bound": false,
+      "error_abs": -0.0003210871274424605,
+      "error_pct": NaN,
+      "passed": true
+    },
+    {
+      "name": "max |S11| over band",
+      "unit": "dB",
+      "openems": -47.72655911776879,
+      "reference": -30.0,
+      "reference_source": "analytic",
+      "tol_pct": null,
+      "tol_abs": null,
+      "upper_bound": true,
+      "error_abs": -17.726559117768787,
+      "error_pct": 59.08853039256262,
+      "passed": true
+    }
+  ],
+  "runtime_s": 8.952542543411255,
+  "notes": [
+    "max |S11|: an ideal matched guide has S11 -> -inf; treated as an upper limit of -30 dB.",
+    "no HFSS reference supplied (references/hfss/wr90_waveguide.csv); compared to analytic only"
+  ],
+  "passed": true
+}
