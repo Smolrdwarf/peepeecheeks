@@ -1,0 +1,172 @@
+{
+  "name": "HFSSDesign1",
+  "units": "mm",
+  "variables": {
+    "a": "60"
+  },
+  "objects": [
+    {
+      "name": "ring_antenna_pad_1_ObjectFromFace1",
+      "kind": "cad",
+      "material": "pec",
+      "params": {},
+      "axis": "Z",
+      "transparency": 0.0,
+      "visible": true,
+      "part": "ring_antenna_pad_1_ObjectFromFace1"
+    },
+    {
+      "name": "Box1",
+      "kind": "cad",
+      "material": "FR4_epoxy - high Ghz",
+      "params": {},
+      "axis": "Z",
+      "transparency": 0.9,
+      "visible": true,
+      "part": "Box1"
+    },
+    {
+      "name": "Rectangle1",
+      "kind": "cad",
+      "material": "pec",
+      "params": {},
+      "axis": "Z",
+      "transparency": 0.56,
+      "visible": true,
+      "part": "Rectangle1"
+    },
+    {
+      "name": "Cylinder9",
+      "kind": "cad",
+      "material": "copper",
+      "params": {},
+      "axis": "Z",
+      "transparency": 0.0,
+      "visible": true,
+      "part": "Cylinder9"
+    },
+    {
+      "name": "Cylinder10",
+      "kind": "cad",
+      "material": "copper",
+      "params": {},
+      "axis": "Z",
+      "transparency": 0.0,
+      "visible": true,
+      "part": "Cylinder10"
+    },
+    {
+      "name": "Cylinder11",
+      "kind": "cad",
+      "material": "copper",
+      "params": {},
+      "axis": "Z",
+      "transparency": 0.0,
+      "visible": true,
+      "part": "Cylinder11"
+    },
+    {
+      "name": "Cylinder12",
+      "kind": "cad",
+      "material": "copper",
+      "params": {},
+      "axis": "Z",
+      "transparency": 0.0,
+      "visible": true,
+      "part": "Cylinder12"
+    }
+  ],
+  "ports": [
+    {
+      "name": "P1",
+      "params": {
+        "x1": "87.4572999",
+        "y1": "-101.4360001",
+        "z1": "3.469446952e-16",
+        "x2": "87.4573001",
+        "y2": "-98.1359999",
+        "z2": "1.623"
+      },
+      "axis": "Z",
+      "impedance": "50",
+      "excited": true
+    }
+  ],
+  "materials": {
+    "FR4_epoxy - high Ghz": {
+      "name": "FR4_epoxy - high Ghz",
+      "epsr": 4.3,
+      "mur": 1.0,
+      "tand": 0.025,
+      "conductor": false,
+      "color": [
+        0.10588235294117647,
+        0.43137254901960786,
+        0.2980392156862745
+      ]
+    },
+    "copper": {
+      "name": "copper",
+      "epsr": 1.0,
+      "mur": 0.999991,
+      "tand": 0.0,
+      "conductor": true,
+      "color": [
+        0.9490196078431372,
+        0.5490196078431373,
+        0.4
+      ]
+    },
+    "vacuum": {
+      "name": "vacuum",
+      "epsr": 1.0,
+      "mur": 1.0,
+      "tand": 0.0,
+      "conductor": false,
+      "color": [
+        0.9019607843137255,
+        0.9019607843137255,
+        0.9019607843137255
+      ]
+    }
+  },
+  "region": {
+    "padding": "0",
+    "boundaries": [
+      "PML_8",
+      "PML_8",
+      "PML_8",
+      "PML_8",
+      "PML_8",
+      "PML_8"
+    ],
+    "explicit": [
+      47.45729990000001,
+      187.5000001000004,
+      -152.37599929089998,
+      -47.49999989999911,
+      -40.2770001,
+      41.7700001
+    ]
+  },
+  "setup": {
+    "name": "Setup2",
+    "f_start": "1.435",
+    "f_stop": "4.305",
+    "n_points": 401,
+    "cells_per_wavelength": 20,
+    "end_criteria_db": -40.0,
+    "max_timesteps": 60000,
+    "farfield": true,
+    "farfield_freq": "2.87",
+    "farfield_step_deg": 3.0
+  },
+  "source": {
+    "type": "aedt",
+    "path": "C:\\Users\\yuqiy\\Desktop\\y2s1\\hackermen\\ring_antenna_v1.aedt",
+    "design": "HFSSDesign1",
+    "model_units": "mm"
+  },
+  "references": [],
+  "format_version": 1
+}

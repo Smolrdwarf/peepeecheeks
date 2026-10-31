@@ -1,0 +1,15 @@
+{
+ "name": "gap_hfss_cpw30",
+ "knobs": {
+  "gap": "0.0427",
+  "cpw": "30"
+ },
+ "cells": 1173952,
+ "min_cell_mm": 0.04270000000001062,
+ "mesh_lines": [
+  136,
+  104,
+  83
+ ],
+ "runtime_s": 1454.2
+}
